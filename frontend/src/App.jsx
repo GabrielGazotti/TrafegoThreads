@@ -1,50 +1,65 @@
-import React from "react";
+import React, { useCallback, useState } from "react";
 import { useSimulationSocket } from "./hooks/useSimulationSocket.js";
-import CityMap from "./components/CityMap.jsx";
-import MetricsPanel from "./components/MetricsPanel.jsx";
-import EventLog from "./components/EventLog.jsx";
-import ChaosIndicator from "./components/ChaosIndicator.jsx";
-import Legend from "./components/Legend.jsx";
+import ModeFrame from "./components/ModeFrame.jsx";
+import UtilizationPanel from "./components/UtilizationPanel.jsx";
+
+const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
+const WS_BASE = import.meta.env.VITE_WS_URL?.replace(/\/ws\/.*$/, "") || `ws://${window.location.hostname}:8000`;
 
 export default function App() {
-  const { data, connected } = useSimulationSocket();
+  const [focus, setFocus] = useState(null);
 
-  const vehicles = data?.vehicles || [];
-  const intersections = data?.intersections || [];
-  const metrics = data?.metrics;
-  const chaos = data?.chaos ?? 0;
-  const events = data?.events || [];
+  const { data: multiData, connected: multiConnected } = useSimulationSocket(
+    `${WS_BASE}/ws/simulation`
+  );
+  const { data: monoData, connected: monoConnected } = useSimulationSocket(
+    `${WS_BASE}/ws/simulation-mono`
+  );
+
+  const reset = useCallback(async () => {
+    try {
+      await fetch(`${API_BASE}/api/reset`, { method: "POST" });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const toggleFocus = (mode) => {
+    setFocus((f) => (f === mode ? null : mode));
+  };
+
+  const bothConnected = multiConnected && monoConnected;
 
   return (
-    <div className="app">
-      <header className="app-header">
-        <h1>🚦 Simulador de Trânsito — Versão SEM Sincronização</h1>
-        <span className={`conn-badge ${connected ? "conn-ok" : "conn-down"}`}>
-          {connected ? "● WebSocket conectado" : "○ Reconectando…"}
-        </span>
+    <div className="app app-stage">
+      <header className="app-header stage-header">
+        <h1>Trânsito — MULTI vs MONO</h1>
+        <div className="stage-controls">
+          <button type="button" className="reset-btn" onClick={reset} title="Reset">
+            ↺
+          </button>
+        </div>
       </header>
 
-      <p className="app-subtitle">
-        Cada veículo roda em sua própria <code>Thread</code>. Não há <code>Lock</code>,{" "}
-        <code>Semaphore</code> ou fila global — vários veículos podem entrar no mesmo
-        cruzamento ao mesmo tempo, gerando conflitos e colisões de propósito.
-      </p>
+      <UtilizationPanel multiData={multiData} monoData={monoData} />
 
-      <ChaosIndicator level={chaos} />
-
-      <div className="main-grid">
-        <div className="map-column">
-          <CityMap vehicles={vehicles} intersections={intersections} />
-          <Legend />
-        </div>
-
-        <div className="side-column">
-          <h2>Métricas</h2>
-          <MetricsPanel metrics={metrics} />
-
-          <h2>Log de eventos</h2>
-          <EventLog events={events} />
-        </div>
+      <div className={`stage-grid ${focus ? `focus-${focus}` : ""}`}>
+        <ModeFrame
+          mode="multi"
+          label="MULTI"
+          data={multiData}
+          connected={multiConnected}
+          highlighted={focus === "multi"}
+          onFocus={() => toggleFocus("multi")}
+        />
+        <ModeFrame
+          mode="mono"
+          label="MONO"
+          data={monoData}
+          connected={monoConnected}
+          highlighted={focus === "mono"}
+          onFocus={() => toggleFocus("mono")}
+        />
       </div>
     </div>
   );

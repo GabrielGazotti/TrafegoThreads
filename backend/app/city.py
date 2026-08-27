@@ -1,5 +1,5 @@
 """
-Modelo da cidade: ruas horizontais/verticais, cruzamentos e semáforos.
+Modelo da cidade: ruas horizontais/verticais e cruzamentos.
 
 PONTO DE SINCRONIZAÇÃO FUTURO
 ------------------------------

@@ -32,8 +32,8 @@ COLLISION_CHECK_INTERVAL = 0.12
 BROADCAST_INTERVAL = 0.12   # taxa de envio de estado via WebSocket
 
 # --- Tipos de veículo: (emoji, velocidade px/tick, intervalo de tick, agressividade) ---
-# agressividade = probabilidade [0..1] de o veículo IGNORAR o semáforo/ocupação
-# e tentar atravessar mesmo assim -> aumenta o caos propositalmente.
+# agressividade = probabilidade [0..1] de o veículo IGNORAR a ocupação
+# do cruzamento e tentar atravessar mesmo assim -> aumenta o caos.
 VEHICLE_TYPES = {
     "carro":    {"emoji": "🚗", "speed": 55,  "tick": 0.05, "aggressiveness": 0.12},
     "taxi":     {"emoji": "🚕", "speed": 80,  "tick": 0.04, "aggressiveness": 0.30},

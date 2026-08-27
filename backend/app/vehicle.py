@@ -1,10 +1,10 @@
 """
-Cada veículo é uma `threading.Thread` totalmente independente.
+Comportamento de um veículo na simulação.
 
-Não há Lock, Semaphore, Condition ou Event de coordenação entre veículos.
-Cada Thread lê e escreve estado compartilhado (o dicionário de veículos,
-os objetos `Intersection`) sem qualquer proteção — exatamente como pedido
-no enunciado, para permitir Race Conditions, colisões e congestionamentos.
+No modo MULTI, cada veículo roda em sua própria `threading.Thread` via
+`start_as_thread()`. No modo MONO, o manager chama `tick_once()` em sequência.
+
+Não há Lock, Condition ou Event de coordenação entre veículos.
 """
 
 from __future__ import annotations
@@ -20,14 +20,19 @@ from .city import City
 _id_counter = itertools.count(1)
 
 
-class Vehicle(threading.Thread):
+def reset_id_counter() -> None:
+    global _id_counter  # noqa: PLW0603
+    _id_counter = itertools.count(1)
+
+
+class Vehicle:
     def __init__(
         self,
         city: City,
         registry: dict,
         event_log: list,
         metrics,
-        stop_flag: threading.Event,
+        stop_flag: threading.Event | None = None,
     ):
         vtype = random.choice(list(config.VEHICLE_TYPES.keys()))
         cfg = config.VEHICLE_TYPES[vtype]
@@ -35,7 +40,7 @@ class Vehicle(threading.Thread):
         self.id = f"V{next(_id_counter)}"
         self.vtype = vtype
         self.emoji = cfg["emoji"]
-        self.speed = cfg["speed"] * random.uniform(0.85, 1.25)     # variação individual
+        self.speed = cfg["speed"] * random.uniform(0.85, 1.25)
         self.tick_interval = cfg["tick"] * random.uniform(0.9, 1.15)
         self.aggressiveness = min(1.0, cfg["aggressiveness"] * random.uniform(0.6, 1.6))
 
@@ -52,12 +57,17 @@ class Vehicle(threading.Thread):
         self.finished = False
         self.wait_start = None
         self.crash_time = None
-        self.current_intersection = None  # (inter_key, cross_coord)
+        self.current_intersection = None
         self.crossing_pointer = 0
 
+        self._thread: threading.Thread | None = None
         self._setup_route()
 
-        super().__init__(daemon=True, name=self.id)
+    def start_as_thread(self) -> threading.Thread:
+        """Inicia o veículo como Thread independente (modo MULTI)."""
+        self._thread = threading.Thread(target=self.run, daemon=True, name=self.id)
+        self._thread.start()
+        return self._thread
 
     # ------------------------------------------------------------------
     def _setup_route(self):
@@ -96,18 +106,27 @@ class Vehicle(threading.Thread):
         )
         self.metrics.inc_events()
 
-    # ------------------------------------------------------------------
     def run(self):
-        while not self.stop_flag.is_set() and not self.crashed and not self.finished:
-            try:
-                self._tick()
-            except Exception as exc:  # noqa: BLE001
-                # Erros de corrida (ex.: estrutura mudou durante o acesso)
-                # são esperados nesta versão sem sincronização — apenas
-                # registramos e seguimos, sem travar a Thread.
-                self._log(f"erro (possível race condition): {exc!r}", level="race")
+        """Loop contínuo em Thread própria (modo MULTI)."""
+        while (
+            self.stop_flag is not None
+            and not self.stop_flag.is_set()
+            and not self.crashed
+            and not self.finished
+        ):
+            self.tick_once()
             time.sleep(self.tick_interval)
         self._cleanup()
+
+    def tick_once(self):
+        """Um passo de simulação — usado por MULTI (via run) e MONO (via manager)."""
+        if self.crashed or self.finished:
+            return
+        self.metrics.inc_tick()
+        try:
+            self._tick()
+        except Exception as exc:  # noqa: BLE001
+            self._log(f"erro (possível race condition): {exc!r}", level="race")
 
     def _tick(self):
         moving_coord = self.x if self.axis == "H" else self.y
@@ -133,10 +152,6 @@ class Vehicle(threading.Thread):
     def _handle_intersection(self, inter_key, cross_coord):
         inter = self.city.intersections[inter_key]
 
-        # Sem semáforo: cada veículo decide, de forma independente e
-        # imprevisível, se hesita um instante antes de entrar (não é
-        # sincronização — apenas comportamento individual). Isso ainda
-        # cria congestionamento e aumenta a janela para a corrida abaixo.
         if random.random() < self.aggressiveness * 0.3 and self.state != "waiting":
             self.state = "waiting"
             self.wait_start = time.time()
@@ -146,7 +161,6 @@ class Vehicle(threading.Thread):
             self.metrics.add_wait_sample(time.time() - self.wait_start)
             self.wait_start = None
 
-        # --- Ponto de corrida: check (was_free) e entrada não são atômicos ---
         was_free = inter.try_enter(self.id)
         if not was_free:
             self.metrics.inc_conflicts()
@@ -180,7 +194,6 @@ class Vehicle(threading.Thread):
             self.metrics.inc_finished()
 
     def mark_crashed(self):
-        """Chamado pelo monitor de colisões (outra Thread!) sem lock."""
         self.crashed = True
         self.state = "crashed"
         self.crash_time = time.time()
@@ -190,8 +203,6 @@ class Vehicle(threading.Thread):
             inter_key, _ = self.current_intersection
             self.city.intersections[inter_key].leave(self.id)
         if not self.crashed:
-            # Remoção "suja": se outra Thread (monitor de colisão) mexeu no
-            # registry ao mesmo tempo, pode dar KeyError — ignoramos.
             self.registry.pop(self.id, None)
 
     def to_dict(self) -> dict:
