@@ -105,7 +105,8 @@ Threads (`Vehicle`) podem ler `occupants` vazio ao mesmo tempo e entrar
 "simultaneamente" no cruzamento. Isso só conta como **Race** se o veículo
 viu o cruzamento livre e, ao entrar, já havia outro — fila (um atrás do
 outro) não entra nesse contador. O `monitor de colisão` pode transformar
-a sobreposição em **colisão** se os veículos ficarem próximos demais.
+a sobreposição em **colisão** se os veículos ficarem próximos demais
+no mesmo cruzamento (na reta não há batida: são duas mãos).
 
 Outros pontos deliberadamente inseguros:
 - `Metrics` incrementa contadores com `x += 1` sem lock (perda de contagem sob carga).

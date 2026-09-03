@@ -10,13 +10,13 @@ if TYPE_CHECKING:
 
 
 def _in_collision_range(a, b) -> bool:
+    """Colisão só no cruzamento: na reta as mãos são independentes."""
+    if a.current_intersection is None or b.current_intersection is None:
+        return False
+    if a.current_intersection[0] != b.current_intersection[0]:
+        return False
     dist = ((a.x - b.x) ** 2 + (a.y - b.y) ** 2) ** 0.5
-    same_zone = (
-        a.current_intersection is not None
-        and b.current_intersection is not None
-        and a.current_intersection[0] == b.current_intersection[0]
-    ) or dist < config.COLLISION_DISTANCE
-    return same_zone and dist < config.COLLISION_DISTANCE
+    return dist < config.COLLISION_DISTANCE
 
 
 def _find_clusters(active: list) -> list[list]:
@@ -62,11 +62,7 @@ def process_collision_clusters(active: list, city: City, metrics, event_log) -> 
         metrics.inc_vehicles_involved(len(involved))
 
         ref = involved[0]
-        inter_desc = (
-            city.intersections[ref.current_intersection[0]].id
-            if ref.current_intersection
-            else "via"
-        )
+        inter_desc = city.intersections[ref.current_intersection[0]].id
         ids = "+".join(v.id for v in involved)
         event_log.append(
             {

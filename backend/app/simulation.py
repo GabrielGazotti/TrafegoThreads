@@ -77,9 +77,8 @@ class SimulationManager:
 
     def _collision_monitor_loop(self):
         """
-        Varre os veículos vivos e verifica proximidade excessiva entre
-        veículos que estão no mesmo cruzamento (ou muito próximos na
-        mesma rua). Isso é feito lendo o dicionário `self.vehicles`
+        Varre os veículos vivos e verifica proximidade no mesmo cruzamento
+        (retas são duas mãos — sem colisão). Lê o dicionário `self.vehicles`
         enquanto outras Threads o modificam ao mesmo tempo -> possível
         fonte adicional de inconsistência, tratada apenas com try/except.
         """
