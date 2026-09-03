@@ -19,7 +19,7 @@ export default function MetricsPanel({ metrics }) {
       <Metric label="Threads ativas" value={metrics.active_threads} highlight />
       <Metric label="Aguardando" value={metrics.vehicles_waiting} />
       <Metric label="Colisões" value={metrics.collisions} highlight />
-      <Metric label="Conflitos no cruzamento" value={metrics.intersection_conflicts} highlight />
+      <Metric label="Race (cruzamento)" value={metrics.intersection_conflicts} highlight />
       <Metric label="Espera média (s)" value={metrics.average_wait_time} />
       <Metric label="Eventos processados" value={metrics.events_processed} />
       <Metric label="Tempo de execução (s)" value={metrics.uptime} />

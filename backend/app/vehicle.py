@@ -151,11 +151,11 @@ class Vehicle:
             self.metrics.add_wait_sample(time.time() - self.wait_start)
             self.wait_start = None
 
-        was_free = inter.try_enter(self.id)
-        if not was_free:
+        raced = inter.try_enter(self.id)
+        if raced:
             self.metrics.inc_conflicts()
             self._log(
-                f"⚠️ CONFLITO em {inter.id}: mais de um veículo entrou ao mesmo tempo",
+                f"⚠️ RACE em {inter.id}: duas threads leram o cruzamento livre",
                 level="race",
             )
 

@@ -18,15 +18,22 @@ class Intersection:
 
     def try_enter(self, vehicle_id: str) -> bool:
         """
-        Verifica se o cruzamento "parece" livre e entra.
-        Entre o `if` e o `append`, outra Thread pode fazer a mesma coisa:
-        esse é o gap de corrida citado no enunciado.
+        Check-then-act sem lock. Sempre entra.
+
+        Retorna True só na race: este veículo leu o cruzamento livre, mas
+        na hora do append já havia outro — outra thread leu vazio na mesma
+        janela. Fila (entrou com alguém já dentro) retorna False.
         """
         was_free = len(self.occupants) == 0
         time.sleep(random.uniform(0.0005, 0.006))
         self.occupants.append(vehicle_id)
         self.occupied_by = vehicle_id
-        return was_free
+        raced = (
+            was_free
+            and len(self.occupants) > 1
+            and self.occupants[-1] == vehicle_id
+        )
+        return raced
 
     def leave(self, vehicle_id: str):
         try:

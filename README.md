@@ -73,7 +73,7 @@ A API sobe em `http://localhost:8000`:
 ### Apresentação (tela)
 
 O frontend abre **duas cidades lado a lado** (MULTI quente / MONO frio), com:
-- painel de utilizacao: **Threads**, **Ticks/s**, **Veíc. env.** (veículos envolvidos em colisões); badge **2+** no mapa quando ha concorrencia ao vivo
+- painel de utilizacao: **Threads**, **Ticks/s**, **Race** (duas threads acharam o cruzamento livre), **Veíc. env.**; badge **2+** no mapa quando ha concorrencia ao vivo
 - grade de veiculos (MULTI paralelos / MONO 1 por vez com ▶)
 - reset com mesma seed aleatoria para comparacao justa
 
@@ -102,9 +102,10 @@ self.occupied_by = vehicle_id
 
 Como não existe nenhum `Lock` protegendo essas três etapas, duas ou mais
 Threads (`Vehicle`) podem ler `occupants` vazio ao mesmo tempo e entrar
-"simultaneamente" no cruzamento — o que o `SimulationManager` registra como
-**conflito de cruzamento** e o `monitor de colisão` pode transformar em
-**colisão** se os veículos ficarem próximos demais.
+"simultaneamente" no cruzamento. Isso só conta como **Race** se o veículo
+viu o cruzamento livre e, ao entrar, já havia outro — fila (um atrás do
+outro) não entra nesse contador. O `monitor de colisão` pode transformar
+a sobreposição em **colisão** se os veículos ficarem próximos demais.
 
 Outros pontos deliberadamente inseguros:
 - `Metrics` incrementa contadores com `x += 1` sem lock (perda de contagem sob carga).

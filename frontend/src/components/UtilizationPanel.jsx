@@ -16,6 +16,13 @@ const BAR_METRICS = [
     getValue: (data) => data?.utilization?.ticks_per_second ?? data?.metrics?.ticks_per_second ?? 0,
   },
   {
+    key: "race",
+    label: "Race",
+    hint: "janela",
+    hintMono: "janela",
+    getValue: (data) => data?.metrics?.intersection_conflicts ?? 0,
+  },
+  {
     key: "vehicles_involved",
     label: "Veíc. env.",
     hint: "total",
