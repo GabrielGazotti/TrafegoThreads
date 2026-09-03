@@ -1,7 +1,7 @@
-# 🚦 Simulador de Trânsito — Versão SEM Sincronização
+# 🚗 Simulador de Trânsito — Versão SEM Sincronização
 
 Simulador de trânsito concorrente em **Python + FastAPI + React**, construído
-propositalmente **sem** mecanismos de sincronização (`Lock`, `Semaphore`,
+propositalmente **sem** mecanismos de sincronização (`Lock`,
 `Condition`, `Event` de coordenação, filas globais etc.) para demonstrar,
 de forma visual e mensurável, **Race Conditions**, colisões e
 congestionamentos causados por Threads concorrentes.
@@ -9,8 +9,8 @@ congestionamentos causados por Threads concorrentes.
 ```
 React → WebSocket → FastAPI → SimulationManager → Threads
                                         ├── Thread "spawner"
-                                        ├── Thread "semáforos"
                                         ├── Thread "monitor de colisão"
+                                        ├── Thread "reaper"
                                         └── Thread "veículo" (1 por veículo) 🚗🚕🚌🏍️🚐
 ```
 
@@ -23,20 +23,23 @@ traffic-sim/
 │   └── app/
 │       ├── config.py       # constantes da simulação (cidade, veículos, tempos)
 │       ├── metrics.py      # contadores SEM lock (de propósito)
-│       ├── city.py         # ruas, cruzamentos e semáforos (try_enter/leave sem lock)
-│       ├── vehicle.py      # Vehicle(threading.Thread) — comportamento independente
-│       ├── simulation.py   # orquestra spawner, semáforos, monitor de colisão, reaper
-│       └── main.py         # FastAPI + WebSocket /ws/simulation
+│       ├── city.py         # ruas e cruzamentos (try_enter/leave sem lock)
+│       ├── vehicle.py      # Vehicle — tick independente; thread só no modo MULTI
+│       ├── simulation.py   # modo MULTI (spawner, monitor, reaper + N threads)
+│       ├── simulation_mono.py  # modo MONO (1 loop sequencial)
+│       └── main.py         # FastAPI + WS /ws/simulation e /ws/simulation-mono
 └── frontend/
     └── src/
         ├── hooks/useSimulationSocket.js
-        ├── components/CityMap.jsx, MetricsPanel.jsx, EventLog.jsx, ChaosIndicator.jsx, Legend.jsx
-        └── App.jsx
+        ├── components/CityMap, ModeFrame, ThreadStrip, UtilizationPanel
+        └── App.jsx         # tela split MULTI vs MONO (apresentação)
 ```
 
 ## Como rodar
 
 ### Backend
+
+Linux / macOS:
 
 ```bash
 cd backend
@@ -45,11 +48,34 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
+Windows (PowerShell):
+
+```powershell
+cd backend
+py -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --port 8000
+```
+
+Se o PowerShell bloquear o `Activate.ps1` com erro de política de execução, rode
+`Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass` antes, ou pule a
+ativação e chame o interpretador do venv direto:
+`.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --port 8000`.
+
 A API sobe em `http://localhost:8000`:
-- `GET /api/config` — dimensões e ruas da cidade (usado pelo frontend para desenhar o mapa)
-- `GET /api/snapshot` — snapshot pontual do estado (debug)
-- `POST /api/reset` — reinicia a simulação do zero
-- `WS  /ws/simulation` — stream do estado em tempo real (~8x/s)
+- `GET /api/config` — dimensões e ruas da cidade
+- `GET /api/snapshot` / `GET /api/snapshot-mono` — snapshot pontual (debug)
+- `POST /api/reset` — reinicia as duas simulações
+- `WS /ws/simulation` — modo MULTI (1 thread por veículo)
+- `WS /ws/simulation-mono` — modo MONO (loop sequencial)
+
+### Apresentação (tela)
+
+O frontend abre **duas cidades lado a lado** (MULTI quente / MONO frio), com:
+- painel de utilizacao: **Threads**, **Ticks/s**, **Veíc. env.** (veículos envolvidos em colisões); badge **2+** no mapa quando ha concorrencia ao vivo
+- grade de veiculos (MULTI paralelos / MONO 1 por vez com ▶)
+- reset com mesma seed aleatoria para comparacao justa
 
 ### Frontend
 
