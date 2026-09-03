@@ -1,21 +1,3 @@
-"""
-Modelo da cidade: ruas horizontais/verticais e cruzamentos.
-
-PONTO DE SINCRONIZAÇÃO FUTURO
-------------------------------
-As duas operações abaixo, `try_enter()` e `leave()`, são exatamente os
-pontos onde a versão sincronizada vai inserir um `threading.Lock`
-(um Lock por cruzamento). Propositalmente, nesta versão elas fazem
-"check-then-act" sem nenhuma proteção:
-
-    Thread A -> lê occupied_by (None)         )
-    Thread B -> lê occupied_by (None)         ) mesma janela de tempo
-    Thread A -> escreve occupied_by = "A"     )
-    Thread B -> escreve occupied_by = "B"     ) <- corrida de dados!
-
-Isso é feito de propósito e não deve ser "corrigido" aqui.
-"""
-
 import random
 import time
 from dataclasses import dataclass, field
@@ -26,16 +8,14 @@ from . import config
 @dataclass
 class Intersection:
     id: str
-    h_index: int          # índice da rua horizontal
-    v_index: int          # índice da rua vertical
+    h_index: int
+    v_index: int
     x: float
     y: float
 
-    # --- Estado compartilhado e DELIBERADAMENTE não protegido ---
-    occupied_by: str | None = None     # último veículo "dono" do cruzamento
-    occupants: list = field(default_factory=list)   # veículos dentro do cruzamento agora
+    occupied_by: str | None = None
+    occupants: list = field(default_factory=list)
 
-    # ---- Operações DE PROPÓSITO sem lock ----
     def try_enter(self, vehicle_id: str) -> bool:
         """
         Verifica se o cruzamento "parece" livre e entra.

@@ -10,15 +10,7 @@ Threads criadas por este módulo:
 Nenhuma dessas Threads usa Lock/Condition/Event para se
 coordenar com as outras. O `threading.Event` `self.stop_flag` é usado
 apenas para PARAR a simulação de forma limpa (shutdown), não para
-sincronizar acesso a recursos — por isso seu uso não viola o requisito.
-
-PONTO DE EXTENSÃO FUTURO
--------------------------
-Para a versão sincronizada, a ideia é criar um `simulation_sync.py` que
-reaproveite `City`, `Vehicle` e `Metrics`, apenas trocando:
-  - `Intersection.try_enter/leave` por versões com `threading.Lock`
-  - os contadores de `Metrics` por versões protegidas por Lock
-sem precisar tocar no resto da arquitetura (FastAPI, WebSocket, React).
+sincronizar acesso a recursos.
 """
 
 from __future__ import annotations

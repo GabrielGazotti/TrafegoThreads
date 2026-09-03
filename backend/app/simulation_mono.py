@@ -1,11 +1,3 @@
-"""
-SimulationManager MONO — um único loop sequencial.
-
-Uma Thread executa spawn → tick de cada veículo (um por vez) → colisões →
-reaper. Mesma City e mesma lógica de veículo, mas sem concorrência entre
-ticks — conflitos de cruzamento tendem a zero.
-"""
-
 from __future__ import annotations
 
 import random

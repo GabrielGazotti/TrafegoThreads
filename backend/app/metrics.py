@@ -1,16 +1,3 @@
-"""
-Métricas da simulação.
-
-IMPORTANTE (propositalmente): os contadores abaixo são incrementados
-diretamente por várias Threads ao mesmo tempo, SEM Lock. Em CPython,
-`x += 1` não é atômico (é um LOAD + ADD + STORE), então esses números
-podem ocasionalmente "perder" incrementos sob alta concorrência. Isso
-não é um bug a ser corrigido nesta versão — é parte da demonstração.
-Na versão sincronizada, esta classe pode ganhar um `threading.Lock()`
-sem que nenhum outro módulo precise mudar (todo acesso já passa por
-métodos como `inc_collisions()`).
-"""
-
 import time
 
 
@@ -22,7 +9,7 @@ class Metrics:
         self.vehicles_finished = 0
         self.collisions = 0
         self.vehicles_involved = 0
-        self.intersection_conflicts = 0   # race conditions detectadas no cruzamento
+        self.intersection_conflicts = 0
         self.events_processed = 0
         self.vehicle_ticks = 0
         self.overlap_events = 0
@@ -30,7 +17,6 @@ class Metrics:
         self._wait_time_total = 0.0
         self._wait_time_samples = 0
 
-    # ---- Sem lock de propósito: incrementos "sujos" ----
     def inc_spawned(self):
         self.vehicles_spawned += 1
 

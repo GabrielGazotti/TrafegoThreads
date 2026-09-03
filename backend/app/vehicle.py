@@ -1,12 +1,3 @@
-"""
-Comportamento de um veículo na simulação.
-
-No modo MULTI, cada veículo roda em sua própria `threading.Thread` via
-`start_as_thread()`. No modo MONO, o manager chama `tick_once()` em sequência.
-
-Não há Lock, Condition ou Event de coordenação entre veículos.
-"""
-
 from __future__ import annotations
 
 import itertools
@@ -21,7 +12,7 @@ _id_counter = itertools.count(1)
 
 
 def reset_id_counter() -> None:
-    global _id_counter  # noqa: PLW0603
+    global _id_counter
     _id_counter = itertools.count(1)
 
 
@@ -69,7 +60,6 @@ class Vehicle:
         self._thread.start()
         return self._thread
 
-    # ------------------------------------------------------------------
     def _setup_route(self):
         if self.axis == "H":
             self.h_index = random.randrange(len(self.city.horizontal_streets))

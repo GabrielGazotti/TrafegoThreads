@@ -1,8 +1,3 @@
-"""
-Detecção de colisões por cluster: cada grupo de veículos próximos
-conta uma vez, somando todos os veículos envolvidos (não pares).
-"""
-
 from __future__ import annotations
 
 import time
