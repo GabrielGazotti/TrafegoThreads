@@ -31,7 +31,7 @@ class SimulationManager:
     def __init__(self) -> None:
         self.city = City()
         self.metrics = Metrics()
-        self.vehicles: dict[str, Vehicle] = {}   # estado compartilhado, sem lock
+        self.vehicles: dict[str,'Vehicle'] = {}
         self.event_log: deque = deque(maxlen=config.EVENT_LOG_MAXLEN)
         self.stop_flag = threading.Event()
 
@@ -39,7 +39,6 @@ class SimulationManager:
         self._running = False
         self._overlap_active: set[str] = set()
 
-    # ------------------------------------------------------------------
     def start(self):
         if self._running:
             return
@@ -107,7 +106,6 @@ class SimulationManager:
                     self.vehicles.pop(vid, None)
             time.sleep(0.5)
 
-    # ------------------------------------------------------------------
     def chaos_level(self, waiting: int) -> int:
         """Índice de 0 a 100 usado pelo frontend para o indicador de CAOS.
         Combinação simples de: veículos ativos, conflitos, colisões e
