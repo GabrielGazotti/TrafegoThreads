@@ -1,11 +1,10 @@
 import React from "react";
 
 const ROWS = [
-  { key: "uptime", label: "Tempo total (s)", get: (m) => m?.uptime ?? 0 },
   { key: "collisions", label: "Colisões", get: (m) => m?.collisions ?? 0 },
   {
     key: "intersection_conflicts",
-    label: "Conflitos de corrida (race)",
+    label: "Race conditions",
     get: (m) => m?.intersection_conflicts ?? 0,
   },
   { key: "vehicles_involved", label: "Veículos envolvidos", get: (m) => m?.vehicles_involved ?? 0 },
