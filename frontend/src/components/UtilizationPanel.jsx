@@ -10,7 +10,7 @@ const BAR_METRICS = [
   },
   {
     key: "ticks",
-    label: "Ticks/s",
+    label: "Vel. Média",
     hint: "ritmo",
     hintMono: "ritmo",
     getValue: (data) => data?.utilization?.ticks_per_second ?? data?.metrics?.ticks_per_second ?? 0,

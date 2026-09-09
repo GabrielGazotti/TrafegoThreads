@@ -25,6 +25,7 @@ class Intersection:
         janela. Fila (entrou com alguém já dentro) retorna False.
         """
         was_free = len(self.occupants) == 0
+        time.sleep(random.uniform(config.RACE_WINDOW_MIN, config.RACE_WINDOW_MAX))
         time.sleep(random.uniform(0.0005, 0.006))
         self.occupants.append(vehicle_id)
         self.occupied_by = vehicle_id
