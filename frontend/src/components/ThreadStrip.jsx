@@ -32,7 +32,7 @@ function VehicleToken({ vehicle, mode, tickingId }) {
   );
 }
 
-export default function ThreadStrip({ mode, vehicles = [], activeThreads = 0, tickingId = null }) {
+export default function ThreadStrip({ mode, vehicles = [], activeThreads = 0, peakThreads = 0, tickingId = null }) {
   const active = vehicles.filter((v) => !v.crashed && v.state !== "finished");
   const isMono = mode === "mono";
 
@@ -40,6 +40,9 @@ export default function ThreadStrip({ mode, vehicles = [], activeThreads = 0, ti
     <div className={`thread-strip thread-strip-${mode}`}>
       <div className={`thread-count ${isMono ? "mono-count" : "multi-count"}`}>
         {isMono ? 1 : activeThreads}
+        <span className="thread-peak" title="Pico de Threads simultâneas">
+          pico {isMono ? 1 : peakThreads}
+        </span>
       </div>
       <div className="vehicle-strip-wrap">
         <span className={`thread-strip-caption ${isMono ? "mono-caption" : "multi-caption"}`}>

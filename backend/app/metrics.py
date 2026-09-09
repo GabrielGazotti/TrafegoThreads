@@ -13,6 +13,7 @@ class Metrics:
         self.events_processed = 0
         self.vehicle_ticks = 0
         self.overlap_events = 0
+        self.peak_threads = 0 
 
         self._wait_time_total = 0.0
         self._wait_time_samples = 0
@@ -40,6 +41,10 @@ class Metrics:
 
     def inc_overlap(self, n: int = 1):
         self.overlap_events += n
+        
+    def update_peak_threads(self, active_threads: int):
+        if active_threads > self.peak_threads:
+            self.peak_threads = active_threads
 
     def add_wait_sample(self, wait_seconds: float):
         self._wait_time_total += wait_seconds
@@ -63,12 +68,14 @@ class Metrics:
         return self.vehicle_ticks / elapsed
 
     def snapshot(self, active_threads: int, vehicles_alive: int, waiting: int) -> dict:
+        self.update_peak_threads(active_threads)
         return {
             "vehicles_total": self.vehicles_spawned,
             "vehicles_alive": vehicles_alive,
             "vehicles_finished": self.vehicles_finished,
             "vehicles_waiting": waiting,
             "active_threads": active_threads,
+            "peak_threads": self.peak_threads, 
             "vehicle_ticks": self.vehicle_ticks,
             "ticks_per_second": round(self.ticks_per_second, 1),
             "overlap_events": self.overlap_events,

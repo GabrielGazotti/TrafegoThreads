@@ -15,6 +15,7 @@ export default function ModeFrame({
   const metrics = data?.metrics;
   const tickingId = data?.ticking_id ?? null;
   const simultaneous = data?.utilization?.simultaneous_intersections ?? 0;
+  const peakThreads = metrics?.peak_threads ?? 0; 
 
   return (
     <div className={`mode-frame mode-${mode} ${highlighted ? "mode-focused" : ""}`}>
@@ -37,6 +38,7 @@ export default function ModeFrame({
         mode={mode}
         vehicles={vehicles}
         activeThreads={metrics?.active_threads ?? 0}
+        peakThreads={peakThreads}
         tickingId={tickingId}
       />
     </div>

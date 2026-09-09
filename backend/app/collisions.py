@@ -50,7 +50,7 @@ def _find_clusters(active: list) -> list[list]:
 
 
 def process_collision_clusters(active: list, city: City, metrics, event_log) -> None:
-    """Marca veículos colididos e incrementa veículos envolvidos por cluster."""
+    """Marca veículos colididos; incrementa colisões (eventos) e veículos envolvidos."""
     for cluster in _find_clusters(active):
         involved = [v for v in cluster if not v.crashed]
         if len(involved) < 2:
@@ -58,7 +58,8 @@ def process_collision_clusters(active: list, city: City, metrics, event_log) -> 
 
         for v in involved:
             v.mark_crashed()
-
+            
+        metrics.inc_collisions() 
         metrics.inc_vehicles_involved(len(involved))
 
         ref = involved[0]

@@ -15,6 +15,8 @@ MAX_VEHICLES = 100
 
 COLLISION_CHECK_INTERVAL = 0.12
 BROADCAST_INTERVAL = 0.12
+RACE_WINDOW_MIN = 0.04
+RACE_WINDOW_MAX = 0.18
 
 VEHICLE_TYPES = {
     "carro":    {"emoji": "🚗", "speed": 55,  "tick": 0.05, "aggressiveness": 0.12},
