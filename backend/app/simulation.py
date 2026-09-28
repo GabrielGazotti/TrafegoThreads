@@ -1,18 +1,3 @@
-"""
-SimulationManager — orquestra as Threads da simulação SEM SINCRONIZAÇÃO.
-
-Threads criadas por este módulo:
-  * 1 Thread "spawner"        -> cria novos veículos continuamente
-  * 1 Thread "monitor de colisão" -> varre os veículos e detecta colisões
-  * 1 Thread "reaper"         -> remove veículos finalizados/colididos
-  * N Threads "veículo"       -> uma por veículo (ver vehicle.py)
-
-Nenhuma dessas Threads usa Lock/Condition/Event para se
-coordenar com as outras. O `threading.Event` `self.stop_flag` é usado
-apenas para PARAR a simulação de forma limpa (shutdown), não para
-sincronizar acesso a recursos.
-"""
-
 from __future__ import annotations
 
 import random
@@ -75,18 +60,10 @@ class SimulationManager:
             time.sleep(random.uniform(config.SPAWN_INTERVAL_MIN, config.SPAWN_INTERVAL_MAX))
 
     def _collision_monitor_loop(self):
-        """
-        Varre os veículos vivos e verifica proximidade no mesmo cruzamento
-        (retas são duas mãos — sem colisão). Lê o dicionário `self.vehicles`
-        enquanto outras Threads o modificam ao mesmo tempo -> possível
-        fonte adicional de inconsistência, tratada apenas com try/except.
-        """
         while not self.stop_flag.is_set():
             try:
                 snapshot = list(self.vehicles.values())
             except RuntimeError:
-                # dict mudou de tamanho durante a iteração -> race condition
-                # esperada; simplesmente tenta de novo no próximo ciclo.
                 time.sleep(config.COLLISION_CHECK_INTERVAL)
                 continue
 
@@ -96,9 +73,6 @@ class SimulationManager:
             time.sleep(config.COLLISION_CHECK_INTERVAL)
 
     def _reaper_loop(self):
-        """Remove do dicionário veículos 'finished' ou 'crashed' há tempo
-        suficiente. Também sem lock: pode colidir com o próprio veículo
-        tentando se auto-remover em `_cleanup()` — por isso o try/except."""
         while not self.stop_flag.is_set():
             now = time.time()
             for vid, v in list(self.vehicles.items()):
@@ -107,10 +81,6 @@ class SimulationManager:
             time.sleep(0.5)
 
     def chaos_level(self, waiting: int) -> int:
-        """Índice de 0 a 100 usado pelo frontend para o indicador de CAOS.
-        Combinação simples de: veículos ativos, conflitos, colisões e
-        veículos esperando. Não precisa ser cientificamente exato — é um
-        termômetro visual do quão "bagunçada" está a simulação."""
         n_vehicles = len(self.vehicles)
         score = (
             n_vehicles * 1.2
@@ -165,6 +135,5 @@ class SimulationManager:
         self._overlap_active = current
 
     def _count_active_threads(self) -> int:
-        """Spawner + monitor + reaper + 1 thread por veículo ativo."""
         alive = sum(1 for v in self.vehicles.values() if not v.finished and not v.crashed)
         return 3 + alive

@@ -1,11 +1,3 @@
-"""
-API FastAPI + WebSocket do Simulador de Trânsito.
-
-Dois modos em paralelo:
-  /ws/simulation      -> MULTI (1 thread por veículo)
-  /ws/simulation-mono -> MONO (loop sequencial)
-"""
-
 import asyncio
 import json
 import random

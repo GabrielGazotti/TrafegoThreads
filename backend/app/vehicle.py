@@ -55,7 +55,6 @@ class Vehicle:
         self._setup_route()
 
     def start_as_thread(self) -> threading.Thread:
-        """Inicia o veículo como Thread independente (modo MULTI)."""
         self._thread = threading.Thread(target=self.run, daemon=True, name=self.id)
         self._thread.start()
         return self._thread
@@ -97,7 +96,6 @@ class Vehicle:
         self.metrics.inc_events()
 
     def run(self):
-        """Loop contínuo em Thread própria (modo MULTI)."""
         while (
             self.stop_flag is not None
             and not self.stop_flag.is_set()
@@ -109,13 +107,12 @@ class Vehicle:
         self._cleanup()
 
     def tick_once(self):
-        """Um passo de simulação — usado por MULTI (via run) e MONO (via manager)."""
         if self.crashed or self.finished:
             return
         self.metrics.inc_tick()
         try:
             self._tick()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             self._log(f"erro (possível race condition): {exc!r}", level="race")
 
     def _tick(self):

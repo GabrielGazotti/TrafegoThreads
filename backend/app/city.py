@@ -17,13 +17,7 @@ class Intersection:
     occupants: list = field(default_factory=list)
 
     def try_enter(self, vehicle_id: str) -> bool:
-        """
-        Check-then-act sem lock. Sempre entra.
-
-        Retorna True só na race: este veículo leu o cruzamento livre, mas
-        na hora do append já havia outro — outra thread leu vazio na mesma
-        janela. Fila (entrou com alguém já dentro) retorna False.
-        """
+       
         was_free = len(self.occupants) == 0
         time.sleep(random.uniform(config.RACE_WINDOW_MIN, config.RACE_WINDOW_MAX))
         time.sleep(random.uniform(0.0005, 0.006))

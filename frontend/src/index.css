@@ -19,7 +19,6 @@ body {
   max-width: 100%;
 }
 
-/* ---- Header ---- */
 .app-header {
   display: flex;
   align-items: center;
@@ -80,7 +79,6 @@ body {
 .conn-dot.conn-ok { background: #58d68d; }
 .conn-dot.conn-down { background: #e77; }
 
-/* ---- Compare bars ---- */
 .compare-bars {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -235,7 +233,6 @@ body {
   font-weight: 700;
 }
 
-/* ---- Stage grid ---- */
 .stage-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -252,7 +249,6 @@ body {
   grid-template-columns: 1fr;
 }
 
-/* ---- Mode frame ---- */
 .mode-frame {
   background: #171a21;
   border: 1px solid #2a2e38;
@@ -314,7 +310,6 @@ body {
   font-size: 14px;
 }
 
-/* ---- City map ---- */
 .city-map {
   width: 100%;
   height: auto;
@@ -379,7 +374,6 @@ body {
   color: #888;
 }
 
-/* ---- Thread strip ---- */
 .thread-strip {
   display: flex;
   align-items: stretch;

@@ -10,7 +10,6 @@ if TYPE_CHECKING:
 
 
 def _in_collision_range(a, b) -> bool:
-    """Colisão só no cruzamento: na reta as mãos são independentes."""
     if a.current_intersection is None or b.current_intersection is None:
         return False
     if a.current_intersection[0] != b.current_intersection[0]:
@@ -50,7 +49,6 @@ def _find_clusters(active: list) -> list[list]:
 
 
 def process_collision_clusters(active: list, city: City, metrics, event_log) -> None:
-    """Marca veículos colididos; incrementa colisões (eventos) e veículos envolvidos."""
     for cluster in _find_clusters(active):
         involved = [v for v in cluster if not v.crashed]
         if len(involved) < 2:

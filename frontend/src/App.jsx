@@ -21,7 +21,7 @@ export default function App() {
     try {
       await fetch(`${API_BASE}/api/reset`, { method: "POST" });
     } catch {
-      /* ignore */
+
     }
   }, []);
 

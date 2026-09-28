@@ -3,11 +3,6 @@ import { useEffect, useRef, useState } from "react";
 const DEFAULT_WS_URL =
   import.meta.env.VITE_WS_URL || `ws://${window.location.hostname}:8000/ws/simulation`;
 
-/**
- * Conecta ao WebSocket do backend e mantém o snapshot mais recente da
- * simulação (veículos, cruzamentos, métricas, nível de caos e eventos).
- * Reconecta automaticamente caso a conexão caia.
- */
 export function useSimulationSocket(url = DEFAULT_WS_URL) {
   const [data, setData] = useState(null);
   const [connected, setConnected] = useState(false);
@@ -30,8 +25,7 @@ export function useSimulationSocket(url = DEFAULT_WS_URL) {
           const parsed = JSON.parse(event.data);
           if (!cancelled) setData(parsed);
         } catch (err) {
-          // ignora frames malformados (pode acontecer por causa das
-          // mutações concorrentes do lado do backend)
+
         }
       };
 

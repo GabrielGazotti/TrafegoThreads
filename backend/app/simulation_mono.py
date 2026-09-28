@@ -53,7 +53,6 @@ class SimulationManagerMono:
         while not self.stop_flag.is_set():
             cycle_start = time.time()
 
-            # spawn
             now = time.time()
             if now - last_spawn >= random.uniform(config.SPAWN_INTERVAL_MIN, config.SPAWN_INTERVAL_MAX):
                 if len(self.vehicles) < config.MAX_VEHICLES:
@@ -62,7 +61,6 @@ class SimulationManagerMono:
                     self.metrics.inc_spawned()
                 last_spawn = now
 
-            # tick sequencial — um veículo por vez
             for vid, v in list(self.vehicles.items()):
                 if v.finished or v.crashed:
                     continue
@@ -72,7 +70,6 @@ class SimulationManagerMono:
 
             self._check_collisions()
 
-            # reaper
             now_reap = time.time()
             if now_reap - last_reap > 0.5:
                 for vid, v in list(self.vehicles.items()):
