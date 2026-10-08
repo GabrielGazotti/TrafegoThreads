@@ -1,68 +1,55 @@
-import React, { useCallback, useState } from "react";
-import { useSimulationSocket } from "./hooks/useSimulationSocket.js";
-import ModeFrame from "./components/ModeFrame.jsx";
-import UtilizationPanel from "./components/UtilizationPanel.jsx";
-import ComparisonPanel from "./components/ComparisonPanel.jsx";
+import React, { useEffect, useState } from "react";
+import { NavLink, Outlet } from "react-router-dom";
 
-const API_BASE = import.meta.env.VITE_API_URL || `http://${window.location.hostname}:8000`;
-const WS_BASE = import.meta.env.VITE_WS_URL?.replace(/\/ws\/.*$/, "") || `ws://${window.location.hostname}:8000`;
+const PAGES = [
+  { to: "/threads", label: "Threads", hint: "MULTI vs MONO" },
+  { to: "/scheduling", label: "Scheduling", hint: "Sincronismo" },
+];
 
 export default function App() {
-  const [focus, setFocus] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  const { data: multiData, connected: multiConnected } = useSimulationSocket(
-    `${WS_BASE}/ws/simulation`
-  );
-  const { data: monoData, connected: monoConnected } = useSimulationSocket(
-    `${WS_BASE}/ws/simulation-mono`
-  );
-
-  const reset = useCallback(async () => {
-    try {
-      await fetch(`${API_BASE}/api/reset`, { method: "POST" });
-    } catch {
-
-    }
-  }, []);
-
-  const toggleFocus = (mode) => {
-    setFocus((f) => (f === mode ? null : mode));
-  };
-
-  const bothConnected = multiConnected && monoConnected;
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onKey = (e) => e.key === "Escape" && setMenuOpen(false);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [menuOpen]);
 
   return (
-    <div className="app app-stage">
-      <header className="app-header stage-header">
-        <h1>Trânsito — MULTI vs MONO</h1>
-        <div className="stage-controls">
-          <button type="button" className="reset-btn" onClick={reset} title="Reset">
-            ↺
-          </button>
-        </div>
-      </header>
+    <div className="app app-stage app-with-menu">
+      <button
+        type="button"
+        className={`menu-btn ${menuOpen ? "menu-btn-open" : ""}`}
+        onClick={() => setMenuOpen((o) => !o)}
+        aria-label="Menu"
+        aria-expanded={menuOpen}
+      >
+        <span />
+        <span />
+        <span />
+      </button>
 
-      <UtilizationPanel multiData={multiData} monoData={monoData} />
-      <ComparisonPanel multiData={multiData} monoData={monoData} />
+      <div
+        className={`menu-overlay ${menuOpen ? "menu-overlay-open" : ""}`}
+        onClick={() => setMenuOpen(false)}
+      />
+      <nav className={`menu-drawer ${menuOpen ? "menu-drawer-open" : ""}`}>
+        <div className="menu-title">Trânsito</div>
+        {PAGES.map((page) => (
+          <NavLink
+            key={page.to}
+            to={page.to}
+            className="menu-link"
+            onClick={() => setMenuOpen(false)}
+          >
+            <span className="menu-link-label">{page.label}</span>
+            <span className="menu-link-hint">{page.hint}</span>
+          </NavLink>
+        ))}
+      </nav>
 
-      <div className={`stage-grid ${focus ? `focus-${focus}` : ""}`}>
-        <ModeFrame
-          mode="multi"
-          label="MULTI"
-          data={multiData}
-          connected={multiConnected}
-          highlighted={focus === "multi"}
-          onFocus={() => toggleFocus("multi")}
-        />
-        <ModeFrame
-          mode="mono"
-          label="MONO"
-          data={monoData}
-          connected={monoConnected}
-          highlighted={focus === "mono"}
-          onFocus={() => toggleFocus("mono")}
-        />
-      </div>
+      <Outlet />
     </div>
   );
 }

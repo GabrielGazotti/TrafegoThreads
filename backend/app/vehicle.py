@@ -24,13 +24,21 @@ class Vehicle:
         event_log: list,
         metrics,
         stop_flag: threading.Event | None = None,
+        vehicle_types: dict | None = None,
+        vtype: str | None = None,
+        vehicle_id: str | None = None,
+        run_gate: threading.Event | None = None,
     ):
-        vtype = random.choice(list(config.VEHICLE_TYPES.keys()))
-        cfg = config.VEHICLE_TYPES[vtype]
+        types = vehicle_types or config.VEHICLE_TYPES
+        if vtype is None:
+            vtype = random.choice(list(types.keys()))
+        cfg = types[vtype]
 
-        self.id = f"V{next(_id_counter)}"
+        self.id = vehicle_id or f"V{next(_id_counter)}"
         self.vtype = vtype
         self.emoji = cfg["emoji"]
+        self.priority = cfg.get("priority", config.PRIORITY_NORMAL)
+        self.spawn_time = time.time()
         self.speed = cfg["speed"] * random.uniform(0.85, 1.25)
         self.tick_interval = cfg["tick"] * random.uniform(0.9, 1.15)
         self.aggressiveness = min(1.0, cfg["aggressiveness"] * random.uniform(0.6, 1.6))
@@ -40,6 +48,7 @@ class Vehicle:
         self.event_log = event_log
         self.metrics = metrics
         self.stop_flag = stop_flag
+        self.run_gate = run_gate
 
         self.axis = random.choice(["H", "V"])
         self.direction = random.choice([1, -1])
@@ -63,7 +72,7 @@ class Vehicle:
         if self.axis == "H":
             self.h_index = random.randrange(len(self.city.horizontal_streets))
             self.y = self.city.horizontal_streets[self.h_index]
-            self.x = -30.0 if self.direction == 1 else config.CITY_WIDTH + 30.0
+            self.x = -30.0 if self.direction == 1 else self.city.width + 30.0
             v_indices = range(len(self.city.vertical_streets))
             ordered = sorted(
                 v_indices, key=lambda i: self.city.vertical_streets[i], reverse=self.direction == -1
@@ -74,7 +83,7 @@ class Vehicle:
         else:
             self.v_index = random.randrange(len(self.city.vertical_streets))
             self.x = self.city.vertical_streets[self.v_index]
-            self.y = -30.0 if self.direction == 1 else config.CITY_HEIGHT + 30.0
+            self.y = -30.0 if self.direction == 1 else self.city.height + 30.0
             h_indices = range(len(self.city.horizontal_streets))
             ordered = sorted(
                 h_indices, key=lambda i: self.city.horizontal_streets[i], reverse=self.direction == -1
@@ -102,6 +111,10 @@ class Vehicle:
             and not self.crashed
             and not self.finished
         ):
+            if self.run_gate is not None:
+                self.run_gate.wait()
+                if self.stop_flag.is_set():
+                    break
             self.tick_once()
             time.sleep(self.tick_interval)
         self._cleanup()
@@ -172,13 +185,21 @@ class Vehicle:
 
     def _check_bounds(self):
         if self.axis == "H":
-            out = self.x < -40 or self.x > config.CITY_WIDTH + 40
+            out = self.x < -40 or self.x > self.city.width + 40
         else:
-            out = self.y < -40 or self.y > config.CITY_HEIGHT + 40
+            out = self.y < -40 or self.y > self.city.height + 40
         if out:
             self.state = "finished"
             self.finished = True
             self.metrics.inc_finished()
+
+    def shift_time(self, dt: float) -> None:
+        """Desconta um período pausado dos relógios do veículo."""
+        self.spawn_time += dt
+        if self.wait_start is not None:
+            self.wait_start += dt
+        if self.crash_time is not None:
+            self.crash_time += dt
 
     def mark_crashed(self):
         self.crashed = True
@@ -203,4 +224,5 @@ class Vehicle:
             "direction": self.direction,
             "state": self.state,
             "crashed": self.crashed,
+            "priority": self.priority,
         }

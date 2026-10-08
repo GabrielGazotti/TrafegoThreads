@@ -18,7 +18,7 @@ def _in_collision_range(a, b) -> bool:
     return dist < config.COLLISION_DISTANCE
 
 
-def _find_clusters(active: list) -> list[list]:
+def _find_clusters(active: list, in_range=_in_collision_range) -> list[list]:
     n = len(active)
     if n < 2:
         return []
@@ -38,7 +38,7 @@ def _find_clusters(active: list) -> list[list]:
 
     for i in range(n):
         for j in range(i + 1, n):
-            if _in_collision_range(active[i], active[j]):
+            if in_range(active[i], active[j]):
                 union(i, j)
 
     groups: dict[int, list] = {}
@@ -48,8 +48,10 @@ def _find_clusters(active: list) -> list[list]:
     return [cluster for cluster in groups.values() if len(cluster) >= 2]
 
 
-def process_collision_clusters(active: list, city: City, metrics, event_log) -> None:
-    for cluster in _find_clusters(active):
+def process_collision_clusters(
+    active: list, city: City, metrics, event_log, in_range=_in_collision_range
+) -> None:
+    for cluster in _find_clusters(active, in_range):
         involved = [v for v in cluster if not v.crashed]
         if len(involved) < 2:
             continue

@@ -18,6 +18,14 @@ class Metrics:
         self._wait_time_total = 0.0
         self._wait_time_samples = 0
 
+    paused_at: float | None = None
+
+    def _now(self) -> float:
+        return self.paused_at if self.paused_at is not None else time.time()
+
+    def shift_time(self, dt: float) -> None:
+        self.start_time += dt
+
     def inc_spawned(self):
         self.vehicles_spawned += 1
 
@@ -58,7 +66,7 @@ class Metrics:
 
     @property
     def uptime(self) -> float:
-        return time.time() - self.start_time
+        return self._now() - self.start_time
 
     @property
     def ticks_per_second(self) -> float:

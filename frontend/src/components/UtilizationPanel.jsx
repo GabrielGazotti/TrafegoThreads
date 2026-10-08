@@ -31,7 +31,7 @@ const BAR_METRICS = [
   },
 ];
 
-function MetricBar({ label, hint, value, mode, max }) {
+export function MetricBar({ label, hint, value, mode, max }) {
   const pct = (value / max) * 100;
   const display =
     typeof value === "number" && !Number.isInteger(value) ? value.toFixed(1) : value;

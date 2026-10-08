@@ -8,28 +8,23 @@ from collections import deque
 from .collisions import process_collision_clusters
 from . import config
 from .city import City
+from .lifecycle import Lifecycle
 from .metrics import Metrics
 from .vehicle import Vehicle
 
 
-class SimulationManager:
+class SimulationManager(Lifecycle):
     def __init__(self) -> None:
         self.city = City()
         self.metrics = Metrics()
         self.vehicles: dict[str,'Vehicle'] = {}
         self.event_log: deque = deque(maxlen=config.EVENT_LOG_MAXLEN)
-        self.stop_flag = threading.Event()
+        self._init_lifecycle()
 
         self._threads: list[threading.Thread] = []
-        self._running = False
         self._overlap_active: set[str] = set()
 
-    def start(self):
-        if self._running:
-            return
-        self._running = True
-        self.stop_flag.clear()
-
+    def _launch(self):
         spawner = threading.Thread(target=self._spawn_loop, name="spawner", daemon=True)
         collisions = threading.Thread(
             target=self._collision_monitor_loop, name="monitor-colisao", daemon=True
@@ -45,22 +40,19 @@ class SimulationManager:
              "message": "Simulação iniciada (modo SEM sincronização)"}
         )
 
-    def stop(self):
-        self._running = False
-        self.stop_flag.set()
-
     # ------------------------------------------------------------------
     def _spawn_loop(self):
-        while not self.stop_flag.is_set():
+        while self._wait_running():
             if len(self.vehicles) < config.MAX_VEHICLES:
-                v = Vehicle(self.city, self.vehicles, self.event_log, self.metrics, self.stop_flag)
+                v = Vehicle(self.city, self.vehicles, self.event_log, self.metrics, self.stop_flag,
+                            run_gate=self.run_gate)
                 self.vehicles[v.id] = v   # escrita direta no dict compartilhado
                 self.metrics.inc_spawned()
                 v.start_as_thread()
             time.sleep(random.uniform(config.SPAWN_INTERVAL_MIN, config.SPAWN_INTERVAL_MAX))
 
     def _collision_monitor_loop(self):
-        while not self.stop_flag.is_set():
+        while self._wait_running():
             try:
                 snapshot = list(self.vehicles.values())
             except RuntimeError:
@@ -73,7 +65,7 @@ class SimulationManager:
             time.sleep(config.COLLISION_CHECK_INTERVAL)
 
     def _reaper_loop(self):
-        while not self.stop_flag.is_set():
+        while self._wait_running():
             now = time.time()
             for vid, v in list(self.vehicles.items()):
                 if v.finished or (v.crashed and v.crash_time and now - v.crash_time > config.CRASH_LINGER_TIME):
@@ -108,6 +100,7 @@ class SimulationManager:
 
         return {
             "mode": "multi",
+            "status": self.status,
             "vehicles": vehicles_list,
             "intersections": self.city.snapshot(),
             "metrics": self.metrics.snapshot(active_threads, len(vehicles_list), waiting),
@@ -135,5 +128,7 @@ class SimulationManager:
         self._overlap_active = current
 
     def _count_active_threads(self) -> int:
+        if self.status == "idle":
+            return 0
         alive = sum(1 for v in self.vehicles.values() if not v.finished and not v.crashed)
         return 3 + alive

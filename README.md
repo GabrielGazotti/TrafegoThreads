@@ -27,12 +27,18 @@ traffic-sim/
 │       ├── vehicle.py      # Vehicle — tick independente; thread só no modo MULTI
 │       ├── simulation.py   # modo MULTI (spawner, monitor, reaper + N threads)
 │       ├── simulation_mono.py  # modo MONO (1 loop sequencial)
-│       └── main.py         # FastAPI + WS /ws/simulation e /ws/simulation-mono
+│       ├── simulation_sched.py # tela /scheduling (multithread + semáforo ON/OFF)
+│       ├── vehicle_sched.py    # SchedVehicle (espera no semáforo, prioridade)
+│       ├── metrics_sched.py    # métricas por fase ON/OFF (com lock)
+│       └── main.py         # FastAPI + WebSockets
+├── docs/                   # métricas e roadmap
 └── frontend/
     └── src/
         ├── hooks/useSimulationSocket.js
-        ├── components/CityMap, ModeFrame, ThreadStrip, UtilizationPanel
-        └── App.jsx         # tela split MULTI vs MONO (apresentação)
+        ├── components/CityMap, ModeFrame, ThreadStrip, UtilizationPanel, SyncMetricsPanel
+        ├── pages/ThreadsPage.jsx     # /threads — MULTI vs MONO
+        ├── pages/SchedulingPage.jsx  # /scheduling — sincronismo
+        └── App.jsx         # layout + navegação
 ```
 
 ## Como rodar
@@ -69,6 +75,30 @@ A API sobe em `http://localhost:8000`:
 - `POST /api/reset` — reinicia as duas simulações
 - `WS /ws/simulation` — modo MULTI (1 thread por veículo)
 - `WS /ws/simulation-mono` — modo MONO (loop sequencial)
+
+Nenhuma simulação inicia sozinha. Cada tela tem **Iniciar / Pausar / Reiniciar**:
+- `POST /api/threads/control` — body `{"action": "start"|"pause"|"reset"}` (MULTI + MONO juntos)
+- `POST /api/scheduling/control` — mesmo body, só a simulação de scheduling
+
+Pausar bloqueia todas as threads da simulação num `threading.Event` (sem gastar CPU),
+e o tempo pausado não conta nas métricas. Quando a última aba de uma tela fecha,
+a simulação dela é pausada automaticamente.
+
+Tela de sincronismo / scheduling:
+- `WS /ws/scheduling` — simulação multithread com semáforo ligável
+- `POST /api/scheduling/sync` — body `{"enabled": true|false}` liga/desliga o semáforo
+- `POST /api/scheduling/reset` — reinicia só a simulação de scheduling
+- `GET /api/scheduling/config` — tipos de veículo e prioridades
+- `GET /api/scheduling/snapshot` — snapshot pontual (debug)
+
+### Rotas do frontend
+
+- `/threads` — tela MULTI vs MONO (sem sincronização)
+- `/scheduling` — tela com o botão **Semáforo ON/OFF**, veículos de emergência
+  (🚑 🚓 🚒) e métricas separadas por fase
+
+Documentação das métricas e próximas etapas em [`docs/`](docs/):
+[`METRICAS.md`](docs/METRICAS.md) e [`ROADMAP.md`](docs/ROADMAP.md).
 
 ### Apresentação (tela)
 

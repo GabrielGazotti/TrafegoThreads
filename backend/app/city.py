@@ -1,4 +1,5 @@
 import random
+import threading
 import time
 from dataclasses import dataclass, field
 
@@ -15,6 +16,8 @@ class Intersection:
 
     occupied_by: str | None = None
     occupants: list = field(default_factory=list)
+    _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+    signal: object = field(default=None, repr=False, compare=False)
 
     def try_enter(self, vehicle_id: str) -> bool:
        
@@ -30,6 +33,33 @@ class Intersection:
         )
         return raced
 
+    def try_enter_signal(self, vehicle_id: str, approach: str, maneuver: str) -> bool:
+        """
+        Entrada controlada pelo semáforo: ler o sinal + entrar dentro do
+        mesmo Lock que a thread controladora usa para trocar a fase.
+
+        Não bloqueia: se o Lock estiver ocupado ou o sinal do movimento
+        estiver fechado, retorna False e o veículo tenta no próximo tick.
+        Assim o semáforo pode ser desligado a qualquer momento sem deixar
+        thread presa no acquire().
+        """
+        if not self._lock.acquire(blocking=False):
+            return False
+        try:
+            if self.signal is None or not self.signal.allows(approach, maneuver):
+                return False
+            self.occupants.append(vehicle_id)
+            self.occupied_by = vehicle_id
+            return True
+        finally:
+            self._lock.release()
+
+    def step_signal(self, now: float) -> None:
+        if self.signal is None:
+            return
+        with self._lock:
+            self.signal.step(now)
+
     def leave(self, vehicle_id: str):
         try:
             self.occupants.remove(vehicle_id)
@@ -38,9 +68,17 @@ class Intersection:
 
 
 class City:
-    def __init__(self) -> None:
-        self.horizontal_streets = list(config.HORIZONTAL_STREETS)
-        self.vertical_streets = list(config.VERTICAL_STREETS)
+    def __init__(
+        self,
+        width: float = config.CITY_WIDTH,
+        height: float = config.CITY_HEIGHT,
+        horizontal_streets: list | None = None,
+        vertical_streets: list | None = None,
+    ) -> None:
+        self.width = width
+        self.height = height
+        self.horizontal_streets = list(horizontal_streets or config.HORIZONTAL_STREETS)
+        self.vertical_streets = list(vertical_streets or config.VERTICAL_STREETS)
 
         self.intersections: dict[tuple[int, int], Intersection] = {}
         for h_idx, y in enumerate(self.horizontal_streets):

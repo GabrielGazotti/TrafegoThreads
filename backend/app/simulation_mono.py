@@ -8,28 +8,24 @@ from collections import deque
 from .collisions import process_collision_clusters
 from . import config
 from .city import City
+from .lifecycle import Lifecycle
 from .metrics import Metrics
 from .vehicle import Vehicle
 
 
-class SimulationManagerMono:
+class SimulationManagerMono(Lifecycle):
     def __init__(self) -> None:
         self.city = City()
         self.metrics = Metrics()
         self.vehicles: dict[str, Vehicle] = {}
         self.event_log: deque = deque(maxlen=config.EVENT_LOG_MAXLEN)
-        self.stop_flag = threading.Event()
+        self._init_lifecycle()
 
         self.ticking_id: str | None = None
         self._loop_thread: threading.Thread | None = None
-        self._running = False
         self._overlap_active: set[str] = set()
 
-    def start(self):
-        if self._running:
-            return
-        self._running = True
-        self.stop_flag.clear()
+    def _launch(self):
         self._loop_thread = threading.Thread(target=self._main_loop, name="sim-mono", daemon=True)
         self._loop_thread.start()
         self.event_log.append(
@@ -42,15 +38,11 @@ class SimulationManagerMono:
             }
         )
 
-    def stop(self):
-        self._running = False
-        self.stop_flag.set()
-
     def _main_loop(self):
         last_spawn = time.time()
         last_reap = time.time()
 
-        while not self.stop_flag.is_set():
+        while self._wait_running():
             cycle_start = time.time()
 
             now = time.time()
@@ -117,10 +109,13 @@ class SimulationManagerMono:
 
         return {
             "mode": "mono",
+            "status": self.status,
             "ticking_id": self.ticking_id,
             "vehicles": vehicles_list,
             "intersections": self.city.snapshot(),
-            "metrics": self.metrics.snapshot(1, len(vehicles_list), waiting),
+            "metrics": self.metrics.snapshot(
+                0 if self.status == "idle" else 1, len(vehicles_list), waiting
+            ),
             "utilization": {
                 "execution_model": "sequential",
                 "simultaneous_intersections": simultaneous,
