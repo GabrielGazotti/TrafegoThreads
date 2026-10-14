@@ -5,9 +5,14 @@ Sempre roda como Thread própria (multithread). Diferente do modo /threads:
   * anda na faixa do seu sentido (mão direita), com fila atrás de quem está à frente;
   * em cada cruzamento escolhe uma manobra: reto, direita ou esquerda;
   * semáforo OFF -> check-then-act sem lock (race possível);
-  * semáforo ON  -> só entra quando o sinal do SEU movimento estiver verde
-                    (`Intersection.try_enter_signal`); senão espera e tenta
-                    no próximo tick.
+  * semáforo ON  -> pede a vez ao escalonador do cruzamento
+                    (`Intersection.try_enter_sched`) com seu movimento,
+                    prioridade e tempo de travessia; se negado, espera e
+                    renova o pedido no próximo tick.
+
+Tudo que define o veículo (velocidade, rua, sentido, manobras) sai do gerador
+`rng` próprio dele. No modo comparação, cada simulação recebe as mesmas seeds,
+então todas veem exatamente o mesmo fluxo de veículos.
 """
 
 from __future__ import annotations
@@ -39,7 +44,10 @@ def lane_coord(axis: str, direction: int, street: float, left_lane: bool = False
 
 
 class SchedVehicle(Vehicle):
-    def __init__(self, *args, sync_enabled: Callable[[], bool], **kwargs):
+    def __init__(self, *args, sync_enabled: Callable[[], bool],
+                 rng: random.Random | None = None, **kwargs):
+        # precisa existir antes do super().__init__, que chama _setup_route()
+        self.rng = rng or random.Random()
         super().__init__(
             *args,
             vehicle_types=config.SCHED_VEHICLE_TYPES,
@@ -53,8 +61,30 @@ class SchedVehicle(Vehicle):
         return self.priority >= config.PRIORITY_EMERGENCY
 
     # ------------------------------------------------------------------ rota
+    def _roll_identity(self) -> None:
+        """Sorteia (com `self.rng`) o que a classe base sorteou com `random`."""
+        rng = self.rng
+        cfg = config.SCHED_VEHICLE_TYPES[self.vtype]
+        self.speed = cfg["speed"] * rng.uniform(0.85, 1.25)
+        self.tick_interval = cfg["tick"] * rng.uniform(0.9, 1.15)
+        self.aggressiveness = min(1.0, cfg["aggressiveness"] * rng.uniform(0.6, 1.6))
+        self.axis = rng.choice(["H", "V"])
+        self.direction = rng.choice([1, -1])
+
+        if self.axis == "H":
+            self.h_index = rng.randrange(len(self.city.horizontal_streets))
+            self.y = self.city.horizontal_streets[self.h_index]
+            self.x = -30.0 if self.direction == 1 else self.city.width + 30.0
+            items = [((self.h_index, v), x) for v, x in enumerate(self.city.vertical_streets)]
+        else:
+            self.v_index = rng.randrange(len(self.city.vertical_streets))
+            self.x = self.city.vertical_streets[self.v_index]
+            self.y = -30.0 if self.direction == 1 else self.city.height + 30.0
+            items = [((h, self.v_index), y) for h, y in enumerate(self.city.horizontal_streets)]
+        self.crossings = sorted(items, key=lambda it: it[1] * self.direction)
+
     def _setup_route(self):
-        super()._setup_route()
+        self._roll_identity()
         if self.axis == "H":
             self.y = lane_coord("H", self.direction, self.y)
         else:
@@ -74,7 +104,7 @@ class SchedVehicle(Vehicle):
             return "straight"
         options = list(config.SCHED_TURN_PROBS)
         weights = [config.SCHED_TURN_PROBS[o] for o in options]
-        return random.choices(options, weights=weights)[0]
+        return self.rng.choices(options, weights=weights)[0]
 
     def _crossings_for(self, axis: str, direction: int, inter_key) -> list:
         h_idx, v_idx = inter_key
@@ -176,13 +206,17 @@ class SchedVehicle(Vehicle):
         approach = approach_of(self.axis, self.direction)
         maneuver = self.next_maneuver
 
+        movement = (approach, maneuver)
         if self.sync_enabled():
-            if not inter.try_enter_signal(self.id, approach, maneuver):
+            if not inter.try_enter_sched(self.id, movement, self.priority,
+                                         f"{self.emoji} {self.id}"):
                 if self.state != "waiting":
-                    self._log(f"🔴 parado no semáforo de {inter.id}", level="wait")
+                    self._log(f"🔴 aguardando a vez em {inter.id}", level="wait")
                 self._stop()
                 return
         else:
+            # hesitação usa o `random` global de propósito: depende do timing das
+            # threads e não pode desalinhar a sequência de manobras do `self.rng`
             if random.random() < self.aggressiveness * 0.3 and self.state != "waiting":
                 self._stop()
                 self._log(f"hesitou ao chegar em {inter.id}", level="wait")
@@ -193,12 +227,15 @@ class SchedVehicle(Vehicle):
                     f"⚠️ RACE em {inter.id}: duas threads leram o cruzamento livre",
                     level="race",
                 )
+            # registra o movimento mesmo sem lock: se o semáforo for ligado com
+            # este veículo dentro, o escalonador precisa saber que ele está lá
+            inter.occupant_moves[self.id] = movement
 
         self._resume()
-        self.metrics.add_wait_sample(self._stopped_total)
+        self.metrics.add_wait_sample(self._stopped_total, self.is_emergency)
         self._stopped_total = 0.0
 
-        self.movement = (approach, maneuver)
+        self.movement = movement
         self.current_intersection = (inter_key, cross_coord)
         self._turned_here = False
         if maneuver != "straight":

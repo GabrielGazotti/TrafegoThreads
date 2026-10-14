@@ -106,6 +106,7 @@ export default function CityMap({
   intersections = [],
   signals = null,
   lanes = false,
+  vehicleSize = null,
   configPath = "/api/config",
 }) {
   const [cityConfig, setCityConfig] = useState(null);
@@ -163,6 +164,11 @@ export default function CityMap({
             {conflict && (
               <circle cx={inter.x} cy={inter.y} r={ROAD_WIDTH} className="conflict-ring" />
             )}
+            {signals === "on" && inter.preempted && (
+              <circle cx={inter.x} cy={inter.y} r={ROAD_WIDTH} className="preempt-ring">
+                <title>Preempção: fase aberta para veículo prioritário</title>
+              </circle>
+            )}
             <circle cx={inter.x} cy={inter.y} r={ROAD_WIDTH / 2 + 2} className="intersection-base" />
             {hasPockets && <LeftPocketLines inter={inter} cfg={cityConfig} />}
             {signals && <IntersectionSignals inter={inter} signals={signals} offsets={offsets} />}
@@ -181,7 +187,10 @@ export default function CityMap({
             y={0}
             textAnchor="middle"
             dominantBaseline="central"
-            fontSize={lanes ? (v.crashed ? 16 : 14) : v.crashed ? 22 : 20}
+            fontSize={
+              vehicleSize ? (v.crashed ? vehicleSize + 2 : vehicleSize)
+                : lanes ? (v.crashed ? 16 : 14) : v.crashed ? 22 : 20
+            }
             className={`vehicle ${v.state} ${v.crashed ? "crashed" : ""} ${v.emergency ? "emergency" : ""}`}
             transform={vehicleRotation(v.axis, v.direction)}
             style={{ opacity: v.crashed ? 0.55 : 1 }}

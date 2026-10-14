@@ -6,10 +6,15 @@ Sempre multithread:
   * 1 Thread "controlador de semáforos" -> avança as fases de todos os cruzamentos
   * N Threads "veículo" (SchedVehicle)
 
-O semáforo (ligado/desligado em tempo real por `set_sync()`) funciona como
-um cruzamento real: N/S reto+direita, N/S esquerda, L/O reto+direita,
-L/O esquerda, com amarelo e vermelho geral entre as fases.
-As métricas são separadas pela fase (ON / OFF).
+O semáforo (ligado/desligado em tempo real por `set_sync()`) entrega cada
+cruzamento a um escalonador (`scheduler.py`), trocado em tempo real por
+`set_algorithm()`: ciclo fixo, Priority Scheduling (preempção / aging),
+ou FCFS.
+As métricas são separadas por modo: "off" ou o algoritmo em uso.
+
+`seed` fixa o fluxo de veículos (tipos, intervalos de spawn, rotas, manobras):
+duas simulações com a mesma seed recebem os mesmos veículos — é o que o modo
+comparação (`simulation_compare.py`) usa para comparar algoritmos de forma justa.
 """
 
 from __future__ import annotations
@@ -24,7 +29,8 @@ from .city import City
 from .collisions import _in_collision_range, process_collision_clusters
 from .lifecycle import Lifecycle
 from .metrics_sched import SchedMetrics
-from .signals import TrafficSignal, movements_conflict
+from .scheduler import make_controller
+from .signals import movements_conflict
 from .vehicle_sched import SchedVehicle
 
 BACKGROUND_THREADS = 4
@@ -36,21 +42,27 @@ def _in_conflict(a, b) -> bool:
 
 
 class SimulationManagerSched(Lifecycle):
-    def __init__(self, sync_enabled: bool = False) -> None:
+    def __init__(self, sync_enabled: bool = False, algorithm: str | None = None,
+                 preemption: bool = True, aging: bool = True,
+                 emergency_rate: float | None = None, seed: int | None = None) -> None:
         self.city = City(
             width=config.SCHED_CITY_WIDTH,
             height=config.SCHED_CITY_HEIGHT,
             horizontal_streets=config.SCHED_HORIZONTAL_STREETS,
             vertical_streets=config.SCHED_VERTICAL_STREETS,
         )
-        # todos os semáforos na mesma fase: quem passa no verde pega o próximo
-        # cruzamento do mesmo eixo também aberto ("onda verde")
-        now = time.time()
-        for inter in self.city.intersections.values():
-            inter.signal = TrafficSignal(start_phase=0, now=now)
-
         self.sync_enabled = sync_enabled
-        self.metrics = SchedMetrics(sync_enabled)
+        self.algorithm = algorithm if algorithm in config.SCHED_ALGORITHMS \
+            else config.SCHED_DEFAULT_ALGORITHM
+        self.preemption = preemption
+        self.aging = aging
+        # fração dos spawns que são emergência (ajustável na tela para provocar starvation)
+        self.emergency_rate = config.SCHED_EMERGENCY_SPAWN_RATE if emergency_rate is None \
+            else emergency_rate
+        self.seed = seed if seed is not None else random.randrange(2**31)
+        self.rng = random.Random(self.seed)
+        self.metrics = SchedMetrics(*self._mode())
+        self._install_controllers()
         self.vehicles: dict[str, SchedVehicle] = {}
         self.event_log: deque = deque(maxlen=config.EVENT_LOG_MAXLEN)
         self._init_lifecycle()
@@ -73,22 +85,95 @@ class SimulationManagerSched(Lifecycle):
             t.start()
             self._threads.append(t)
 
-        self._log_system(
-            f"Simulação scheduling iniciada (semáforo {'ON' if self.sync_enabled else 'OFF'})"
-        )
+        self._log_system(f"Simulação scheduling iniciada ({self._mode()[1]})")
 
     def _shift_time(self, dt: float) -> None:
         super()._shift_time(dt)
         for inter in self.city.intersections.values():
             with inter._lock:
-                inter.signal.stage_end += dt
+                if inter.controller is not None:
+                    inter.controller.shift_time(dt)
+
+    # ------------------------------------------------------- algoritmo
+    def algorithm_label(self) -> str:
+        label = config.SCHED_ALGORITHMS[self.algorithm]
+        if self.algorithm == "priority":
+            label += " (" + ("preemptiva" if self.preemption else "não preemptiva")
+            label += ", com aging)" if self.aging else ", sem aging)"
+        return label
+
+    def _mode(self) -> tuple[str, str]:
+        """(chave do balde de métricas, rótulo) do modo atual."""
+        if not self.sync_enabled:
+            return "off", "Semáforo OFF"
+        key = self.algorithm
+        if self.algorithm == "priority":
+            key += ("" if self.preemption else "-np") + ("+aging" if self.aging else "")
+        return key, self.algorithm_label()
+
+    def _on_controller_event(self, kind: str, message: str) -> None:
+        if kind == "preempt":
+            self.metrics.inc_preemptions()
+        self.event_log.append(
+            {"t": time.time(), "vehicle": "-", "type": "semaforo", "level": kind,
+             "message": message}
+        )
+
+    def _install_controllers(self) -> None:
+        """
+        Controlador novo em todos os cruzamentos, com o mesmo instante de início:
+        os semáforos ficam na mesma fase e quem passa no verde pega o próximo
+        cruzamento do mesmo eixo também aberto ("onda verde").
+        Pedidos pendentes do controlador antigo são descartados; os veículos
+        parados renovam o pedido no próximo tick.
+        """
+        now = time.time()
+        for inter in self.city.intersections.values():
+            ctrl = make_controller(
+                self.algorithm, now, self.preemption, self.aging,
+                on_event=lambda kind, msg, iid=inter.id: self._on_controller_event(
+                    kind, f"{iid}: {msg}"),
+            )
+            inter.set_controller(ctrl)
 
     def set_sync(self, enabled: bool) -> None:
         if enabled == self.sync_enabled:
             return
         self.sync_enabled = enabled
-        self.metrics.set_phase(enabled)
-        self._log_system(f"Semáforo {'LIGADO' if enabled else 'DESLIGADO'}")
+        if enabled:
+            self._install_controllers()
+        self.metrics.set_phase(*self._mode())
+        self._log_system(f"Semáforo {'LIGADO — ' + self.algorithm_label() if enabled else 'DESLIGADO'}")
+
+    def set_algorithm(self, algorithm: str, preemption: bool | None = None,
+                      aging: bool | None = None) -> None:
+        if algorithm not in config.SCHED_ALGORITHMS:
+            raise ValueError(f"algoritmo desconhecido: {algorithm}")
+        new = (algorithm,
+               self.preemption if preemption is None else preemption,
+               self.aging if aging is None else aging)
+        if new == (self.algorithm, self.preemption, self.aging):
+            return
+        self.algorithm, self.preemption, self.aging = new
+        if self.sync_enabled:
+            self._install_controllers()
+            self.metrics.set_phase(*self._mode())
+        self._log_system(f"Escalonador: {self.algorithm_label()}")
+
+    def set_emergency_rate(self, rate: float) -> None:
+        rate = round(min(max(rate, 0.0), config.SCHED_EMERGENCY_RATE_MAX), 2)
+        if rate == self.emergency_rate:
+            return
+        self.emergency_rate = rate
+        self._log_system(f"Taxa de emergências: {rate:.0%} dos veículos gerados")
+
+    def algorithm_state(self) -> dict:
+        return {
+            "name": self.algorithm,
+            "label": self.algorithm_label(),
+            "preemption": self.preemption,
+            "aging": self.aging,
+        }
 
     def is_sync_enabled(self) -> bool:
         return self.sync_enabled
@@ -101,29 +186,36 @@ class SimulationManagerSched(Lifecycle):
 
     # ------------------------------------------------------------------
     def _pick_type(self) -> str:
-        if random.random() < config.SCHED_EMERGENCY_SPAWN_RATE:
-            return random.choice(self._emergency_types)
-        return random.choice(self._normal_types)
+        if self.rng.random() < self.emergency_rate:
+            return self.rng.choice(self._emergency_types)
+        return self.rng.choice(self._normal_types)
 
     def _spawn_loop(self):
         while self._wait_running():
+            # sorteia sempre na mesma ordem, mesmo quando a cidade está cheia,
+            # para a sequência continuar alinhada com as outras simulações
+            vtype = self._pick_type()
+            vehicle_seed = self.rng.getrandbits(32)
+            interval = self.rng.uniform(config.SPAWN_INTERVAL_MIN, config.SPAWN_INTERVAL_MAX)
             if len(self.vehicles) < config.SCHED_MAX_VEHICLES:
                 v = SchedVehicle(
                     self.city, self.vehicles, self.event_log, self.metrics, self.stop_flag,
-                    vtype=self._pick_type(),
+                    vtype=vtype,
                     sync_enabled=self.is_sync_enabled,
                     run_gate=self.run_gate,
+                    rng=random.Random(vehicle_seed),
                 )
                 self.vehicles[v.id] = v
                 self.metrics.inc_spawned()
                 v.start_as_thread()
-            time.sleep(random.uniform(config.SPAWN_INTERVAL_MIN, config.SPAWN_INTERVAL_MAX))
+            time.sleep(interval)
 
     def _signal_controller_loop(self):
         while self._wait_running():
-            now = time.time()
-            for inter in self.city.intersections.values():
-                inter.step_signal(now)
+            if self.sync_enabled:
+                now = time.time()
+                for inter in self.city.intersections.values():
+                    inter.step_controller(now)
             time.sleep(config.SIGNAL_CONTROLLER_INTERVAL)
 
     def _collision_monitor_loop(self):
@@ -152,7 +244,7 @@ class SimulationManagerSched(Lifecycle):
             time.sleep(0.5)
 
     # ------------------------------------------------------------------
-    def snapshot(self) -> dict:
+    def snapshot(self, events: bool = True) -> dict:
         vehicles_list = []
         waiting = 0
         for v in list(self.vehicles.values()):
@@ -166,7 +258,9 @@ class SimulationManagerSched(Lifecycle):
 
         intersections = self.city.snapshot()
         for inter_dict, inter in zip(intersections, self.city.intersections.values()):
-            inter_dict["signal"] = inter.signal.state() if inter.signal else None
+            lights, info = inter.controller_snapshot()
+            inter_dict["signal"] = lights
+            inter_dict.update(info)
 
         alive = sum(1 for v in vehicles_list if not v["crashed"] and v["state"] != "finished")
         active_threads = 0 if self.status == "idle" else BACKGROUND_THREADS + alive
@@ -175,9 +269,11 @@ class SimulationManagerSched(Lifecycle):
             "mode": "scheduling",
             "status": self.status,
             "sync_enabled": self.sync_enabled,
+            "algorithm": self.algorithm_state(),
+            "emergency_rate": self.emergency_rate,
             "lane_offset": config.SCHED_LANE_OFFSET,
             "vehicles": vehicles_list,
             "intersections": intersections,
             "metrics": self.metrics.snapshot(active_threads, len(vehicles_list), waiting),
-            "events": list(self.event_log)[-30:],
+            "events": list(self.event_log)[-30:] if events else [],
         }

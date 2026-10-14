@@ -39,8 +39,10 @@ SCHED_VEHICLE_TYPES = {
                    "priority": PRIORITY_EMERGENCY},
 }
 
-# fração dos veículos gerados que são de emergência (modo scheduling)
+# fração dos veículos gerados que são de emergência (modo scheduling).
+# Ajustável na tela até SCHED_EMERGENCY_RATE_MAX para evidenciar starvation.
 SCHED_EMERGENCY_SPAWN_RATE = 0.15
+SCHED_EMERGENCY_RATE_MAX = 0.8
 
 # cidade da tela /scheduling: mais larga e com menos cruzamentos (2 x 3)
 SCHED_CITY_WIDTH = 1500
@@ -68,6 +70,33 @@ SIGNAL_GREEN_LEFT = 2.5
 SIGNAL_YELLOW = 0.8
 SIGNAL_ALL_RED = 1.0
 SIGNAL_CONTROLLER_INTERVAL = 0.05
+
+# ---------------------------------------------------------------- scheduling
+# Algoritmos de escalonamento do cruzamento (só valem com o semáforo ligado).
+SCHED_ALGORITHMS = {
+    "fixed":    "Ciclo fixo",
+    "priority": "Prioridade",
+    "fcfs":     "FCFS",
+}
+SCHED_DEFAULT_ALGORITHM = "fixed"
+
+# Priority Scheduling
+# verde mínimo antes de uma preempção poder cortar a fase (evita "pisca-pisca")
+SIGNAL_MIN_GREEN = 1.5
+# aging: prioridade efetiva = prioridade + espera (s) * SCHED_AGING_RATE.
+# Com 0.1, um veículo comum (1) alcança a emergência (3) depois de 20 s parado.
+SCHED_AGING_RATE = 0.1
+
+# pedido de passagem sem renovação há mais que isso é descartado
+# (veículo saiu do cruzamento por outro caminho, colidiu, semáforo trocou etc.)
+SCHED_REQUEST_TTL = 1.0
+
+# modo comparação: simulações rodando ao mesmo tempo, mesma seed (mesmo fluxo de veículos)
+# "off" = semáforo desligado; os demais são chaves de SCHED_ALGORITHMS
+SCHED_COMPARE_LANES = ["off", "fixed", "priority", "fcfs"]
+SCHED_COMPARE_DEFAULT = ["fixed", "priority", "fcfs"]
+# antes disso a vazão (veíc/min) é só ruído e não é exibida
+SCHED_MIN_ELAPSED_FOR_RATE = 10.0
 
 CRASH_LINGER_TIME = 3.0
 

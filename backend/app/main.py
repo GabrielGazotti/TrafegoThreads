@@ -3,13 +3,14 @@ import json
 import random
 from typing import Literal
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from . import config
 from .simulation import SimulationManager
 from .simulation_mono import SimulationManagerMono
+from .simulation_compare import CompareManager
 from .simulation_sched import SimulationManagerSched
 from .vehicle import reset_id_counter
 from .vehicle_sched import reset_sched_id_counter
@@ -21,6 +22,23 @@ class SyncToggle(BaseModel):
 
 class ControlAction(BaseModel):
     action: Literal["start", "pause", "reset"]
+
+
+class EmergencyRate(BaseModel):
+    rate: float
+
+
+class AlgorithmChoice(BaseModel):
+    algorithm: str
+    preemption: bool | None = None
+    aging: bool | None = None
+
+
+class CompareConfig(BaseModel):
+    lanes: list[str] | None = None
+    preemption: bool | None = None
+    aging: bool | None = None
+    emergency_rate: float | None = None
 
 
 app = FastAPI(title="Simulador de Trânsito — Threads e Scheduling")
@@ -36,16 +54,19 @@ app.add_middleware(
 sim_multi = SimulationManager()
 sim_mono = SimulationManagerMono()
 sim_sched = SimulationManagerSched()
+sim_compare = CompareManager()
 
 # nenhuma simulação inicia sozinha: cada tela tem seu botão Iniciar.
 # Quando a última conexão de uma tela fecha, a simulação dela é pausada.
-_viewers = {"threads": 0, "scheduling": 0}
+_viewers = {"threads": 0, "scheduling": 0, "compare": 0}
 
 
 def _pause_group(group: str) -> None:
     if group == "threads":
         sim_multi.pause()
         sim_mono.pause()
+    elif group == "compare":
+        sim_compare.pause()
     else:
         sim_sched.pause()
 
@@ -73,6 +94,7 @@ async def on_shutdown():
     sim_multi.stop()
     sim_mono.stop()
     sim_sched.stop()
+    sim_compare.stop()
 
 
 @app.get("/")
@@ -80,7 +102,8 @@ def root():
     return {
         "status": "ok",
         "modes": ["multi", "mono", "scheduling"],
-        "websockets": ["/ws/simulation", "/ws/simulation-mono", "/ws/scheduling"],
+        "websockets": ["/ws/simulation", "/ws/simulation-mono", "/ws/scheduling",
+                       "/ws/scheduling-compare"],
     }
 
 
@@ -153,8 +176,11 @@ def get_scheduling_config():
         "left_pocket": config.SCHED_LEFT_POCKET,
         "vehicle_types": config.SCHED_VEHICLE_TYPES,
         "emergency_spawn_rate": config.SCHED_EMERGENCY_SPAWN_RATE,
+        "emergency_rate_max": config.SCHED_EMERGENCY_RATE_MAX,
         "priority_normal": config.PRIORITY_NORMAL,
         "priority_emergency": config.PRIORITY_EMERGENCY,
+        "algorithms": config.SCHED_ALGORITHMS,
+        "aging_rate": config.SCHED_AGING_RATE,
     }
 
 
@@ -169,15 +195,37 @@ def set_scheduling_sync(body: SyncToggle):
     return {"sync_enabled": sim_sched.sync_enabled}
 
 
+@app.post("/api/scheduling/algorithm")
+def set_scheduling_algorithm(body: AlgorithmChoice):
+    try:
+        sim_sched.set_algorithm(body.algorithm, body.preemption, body.aging)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return sim_sched.algorithm_state()
+
+
+@app.post("/api/scheduling/emergency-rate")
+def set_scheduling_emergency_rate(body: EmergencyRate):
+    sim_sched.set_emergency_rate(body.rate)
+    return {"emergency_rate": sim_sched.emergency_rate}
+
+
 @app.post("/api/scheduling/reset")
 def reset_scheduling():
     global sim_sched  # noqa: PLW0603
-    sync_enabled = sim_sched.sync_enabled
-    sim_sched.stop()
+    old = sim_sched
+    old.stop()
     reset_sched_id_counter()
-    sim_sched = SimulationManagerSched(sync_enabled=sync_enabled)
+    sim_sched = SimulationManagerSched(
+        sync_enabled=old.sync_enabled,
+        algorithm=old.algorithm,
+        preemption=old.preemption,
+        aging=old.aging,
+        emergency_rate=old.emergency_rate,
+    )
     sim_sched.start()
-    return {"status": "reiniciado", "sync_enabled": sync_enabled}
+    return {"status": "reiniciado", "sync_enabled": sim_sched.sync_enabled,
+            "algorithm": sim_sched.algorithm_state()}
 
 
 @app.post("/api/scheduling/control")
@@ -189,6 +237,52 @@ def control_scheduling(body: ControlAction):
     else:
         sim_sched.pause()
     return {"status": sim_sched.status}
+
+
+# ------------------------------------------------------------ modo comparação
+@app.get("/api/scheduling/compare/snapshot")
+def get_compare_snapshot():
+    return sim_compare.snapshot()
+
+
+@app.post("/api/scheduling/compare/config")
+def set_compare_config(body: CompareConfig):
+    """Trocar modos/preempção/aging recomeça a comparação (nova seed); a taxa não."""
+    global sim_compare  # noqa: PLW0603
+    if body.emergency_rate is not None:
+        sim_compare.set_emergency_rate(body.emergency_rate)
+    changed = (
+        (body.lanes is not None and body.lanes != sim_compare.lane_keys)
+        or (body.preemption is not None and body.preemption != sim_compare.preemption)
+        or (body.aging is not None and body.aging != sim_compare.aging)
+    )
+    if changed:
+        try:
+            sim_compare = sim_compare.rebuilt(body.lanes, body.preemption, body.aging)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"lanes": sim_compare.lane_keys, "preemption": sim_compare.preemption,
+            "aging": sim_compare.aging, "emergency_rate": sim_compare.emergency_rate,
+            "seed": sim_compare.seed}
+
+
+@app.post("/api/scheduling/compare/control")
+def control_compare(body: ControlAction):
+    global sim_compare  # noqa: PLW0603
+    if body.action == "reset":
+        sim_compare.stop()
+        sim_compare = CompareManager(
+            lanes=sim_compare.lane_keys,
+            preemption=sim_compare.preemption,
+            aging=sim_compare.aging,
+            emergency_rate=sim_compare.emergency_rate,
+        )
+        sim_compare.start()
+    elif body.action == "start":
+        sim_compare.start()
+    else:
+        sim_compare.pause()
+    return {"status": sim_compare.status, "seed": sim_compare.seed}
 
 
 @app.websocket("/ws/simulation")
@@ -204,3 +298,8 @@ async def websocket_simulation_mono(websocket: WebSocket):
 @app.websocket("/ws/scheduling")
 async def websocket_scheduling(websocket: WebSocket):
     await _stream(websocket, "scheduling", lambda: sim_sched)
+
+
+@app.websocket("/ws/scheduling-compare")
+async def websocket_scheduling_compare(websocket: WebSocket):
+    await _stream(websocket, "compare", lambda: sim_compare)

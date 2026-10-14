@@ -1,9 +1,17 @@
 """
-Métricas da tela /scheduling, separadas pela fase do semáforo (ON / OFF).
+Métricas da tela /scheduling, separadas por modo de controle do cruzamento.
+
+Cada modo tem seu balde: "off" (semáforo desligado) ou o algoritmo de
+scheduling em uso ("fixed", "priority", "fcfs", ...). Todo evento é contado
+no balde do modo ativo no momento do evento.
+
+Médias e máximos sem nenhuma amostra saem como None (a tela mostra "—"), para
+não confundir "sem dados" com "zero". A vazão só aparece depois de
+SCHED_MIN_ELAPSED_FOR_RATE segundos no modo.
 
 Diferente de `Metrics`, aqui os contadores têm Lock: o experimento é o
 cruzamento, então a medição em si precisa ser confiável para a comparação
-ON x OFF fazer sentido.
+entre os modos fazer sentido.
 """
 
 from __future__ import annotations
@@ -11,38 +19,69 @@ from __future__ import annotations
 import threading
 import time
 
+from . import config
+
+CATEGORIES = ("emergency", "normal")
+
+
+def _cat(emergency: bool) -> str:
+    return "emergency" if emergency else "normal"
+
 
 class _Bucket:
-    def __init__(self) -> None:
+    def __init__(self, label: str) -> None:
+        self.label = label
         self.collisions = 0
         self.vehicles_involved = 0
         self.intersection_conflicts = 0
         self.vehicles_finished = 0
         self.vehicle_ticks = 0
         self.events_processed = 0
+        self.preemptions = 0
 
-        self.wait_total = 0.0
-        self.wait_samples = 0
-        self.trip_total = {"emergency": 0.0, "normal": 0.0}
-        self.trip_samples = {"emergency": 0, "normal": 0}
+        self.wait_total = {c: 0.0 for c in CATEGORIES}
+        self.wait_samples = {c: 0 for c in CATEGORIES}
+        self.wait_max = {c: 0.0 for c in CATEGORIES}
+        self.trip_total = {c: 0.0 for c in CATEGORIES}
+        self.trip_samples = {c: 0 for c in CATEGORIES}
 
         self.elapsed = 0.0
 
     @staticmethod
-    def _avg(total: float, n: int) -> float:
-        return round(total / n, 2) if n else 0.0
+    def _avg(total: float, n: int) -> float | None:
+        return round(total / n, 2) if n else None
+
+    def _max(self, *cats: str) -> float | None:
+        if not any(self.wait_samples[c] for c in cats):
+            return None
+        return round(max(self.wait_max[c] for c in cats), 2)
 
     def snapshot(self, elapsed: float) -> dict:
-        minutes = elapsed / 60 if elapsed > 0 else 0
-        trips_total = self.trip_total["emergency"] + self.trip_total["normal"]
-        trips_n = self.trip_samples["emergency"] + self.trip_samples["normal"]
+        minutes = elapsed / 60
+        has_rate = elapsed >= config.SCHED_MIN_ELAPSED_FOR_RATE
+        wait_total = sum(self.wait_total.values())
+        wait_n = sum(self.wait_samples.values())
+        trips_total = sum(self.trip_total.values())
+        trips_n = sum(self.trip_samples.values())
         return {
+            "label": self.label,
             "collisions": self.collisions,
-            "collisions_per_min": round(self.collisions / minutes, 2) if minutes else 0.0,
+            "collisions_per_min": round(self.collisions / minutes, 2) if has_rate else None,
             "vehicles_involved": self.vehicles_involved,
             "intersection_conflicts": self.intersection_conflicts,
             "vehicles_finished": self.vehicles_finished,
-            "average_wait_time": self._avg(self.wait_total, self.wait_samples),
+            "throughput_per_min": round(self.vehicles_finished / minutes, 1) if has_rate else None,
+            "preemptions": self.preemptions,
+            "average_wait_time": self._avg(wait_total, wait_n),
+            "average_wait_time_emergency": self._avg(
+                self.wait_total["emergency"], self.wait_samples["emergency"]
+            ),
+            "average_wait_time_normal": self._avg(
+                self.wait_total["normal"], self.wait_samples["normal"]
+            ),
+            "max_wait_time": self._max(*CATEGORIES),
+            "max_wait_time_emergency": self._max("emergency"),
+            "max_wait_time_normal": self._max("normal"),
             "average_trip_time": self._avg(trips_total, trips_n),
             "average_trip_time_emergency": self._avg(
                 self.trip_total["emergency"], self.trip_samples["emergency"]
@@ -55,13 +94,14 @@ class _Bucket:
 
 
 class SchedMetrics:
-    """Mesma interface usada por Vehicle/collisions, roteada para a fase atual."""
+    """Mesma interface usada por Vehicle/collisions, roteada para o modo atual."""
 
-    def __init__(self, sync_enabled: bool = False) -> None:
+    def __init__(self, mode: str = "off", label: str = "Semáforo OFF") -> None:
         self._lock = threading.Lock()
         self.start_time = time.time()
-        self._buckets = {"on": _Bucket(), "off": _Bucket()}
-        self._phase = "on" if sync_enabled else "off"
+        # dict mantém a ordem em que os modos foram usados
+        self._buckets: dict[str, _Bucket] = {mode: _Bucket(label)}
+        self._phase = mode
         self._phase_start = time.time()
 
         self.vehicles_spawned = 0
@@ -75,14 +115,15 @@ class SchedMetrics:
     def _cur(self) -> _Bucket:
         return self._buckets[self._phase]
 
-    def set_phase(self, sync_enabled: bool) -> None:
-        new_phase = "on" if sync_enabled else "off"
+    def set_phase(self, mode: str, label: str) -> None:
         with self._lock:
-            if new_phase == self._phase:
+            if mode == self._phase:
                 return
-            now = time.time()
+            now = self.paused_at if self.paused_at is not None else time.time()
             self._cur().elapsed += now - self._phase_start
-            self._phase = new_phase
+            if mode not in self._buckets:
+                self._buckets[mode] = _Bucket(label)
+            self._phase = mode
             self._phase_start = now
 
     def shift_time(self, dt: float) -> None:
@@ -118,14 +159,20 @@ class SchedMetrics:
         with self._lock:
             self._cur().vehicle_ticks += n
 
-    def add_wait_sample(self, wait_seconds: float):
+    def inc_preemptions(self, n: int = 1):
+        with self._lock:
+            self._cur().preemptions += n
+
+    def add_wait_sample(self, wait_seconds: float, emergency: bool = False):
+        key = _cat(emergency)
         with self._lock:
             b = self._cur()
-            b.wait_total += wait_seconds
-            b.wait_samples += 1
+            b.wait_total[key] += wait_seconds
+            b.wait_samples[key] += 1
+            b.wait_max[key] = max(b.wait_max[key], wait_seconds)
 
     def add_trip_sample(self, trip_seconds: float, emergency: bool):
-        key = "emergency" if emergency else "normal"
+        key = _cat(emergency)
         with self._lock:
             b = self._cur()
             b.trip_total[key] += trip_seconds

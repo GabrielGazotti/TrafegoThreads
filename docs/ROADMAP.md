@@ -20,44 +20,54 @@ Tela: `http://localhost:5173/scheduling` (sempre multithread: 1 thread por veíc
 - [x] Novos veículos com prioridade: ambulância 🚑, polícia 🚓, bombeiro 🚒
       (`SCHED_VEHICLE_TYPES` em `backend/app/config.py`, ~15% dos spawns).
 
-## A fazer
+## Feito (etapa 2 — scheduling)
+
+Escalonadores em `backend/app/scheduler.py`, um controlador por cruzamento, acessado
+sempre dentro do Lock do cruzamento (`Intersection.try_enter_sched`).
 
 ### 1. Priority Scheduling (PS) ligado / desligado
 
-- [ ] Botão **Prioridade ON/OFF** na tela `/scheduling`.
-- [ ] Com PS ligado, veículo de emergência parado no vermelho **antecipa a fase** do
-      seu movimento (preempção de semáforo): o `TrafficSignal` encurta o verde atual,
-      passa por amarelo/vermelho geral e abre a fase da emergência.
-      - Implementação sugerida: fila de pedidos por cruzamento (`heapq` de
-        `(-priority, chegada, vehicle_id)`), lida pela thread controladora dentro do
-        mesmo Lock do semáforo.
-- [ ] Com PS desligado: ciclo fixo atual (`signals.PHASES`).
-- [ ] PS só faz sentido com o semáforo ligado; decidir se o botão força o sync ON
-      ou fica desabilitado quando o sync está OFF.
-- [ ] Tratar **starvation**: veículos comuns podem esperar indefinidamente com muitas
-      emergências. Mitigar com **aging** (prioridade efetiva sobe com o tempo de espera).
+- [x] Seletor **Escalonador** na tela `/scheduling`: "Ciclo fixo" = PS desligado,
+      "Prioridade" = PS ligado (o seletor substituiu o botão Prioridade ON/OFF).
+- [x] Preempção de semáforo: o topo da fila de prioridade, no vermelho e com prioridade
+      efetiva de emergência, corta o verde atual (após `SIGNAL_MIN_GREEN`), passa por
+      amarelo/vermelho geral e abre a fase dele (`TrafficSignal.cut`).
+      - Fila de pedidos por cruzamento em `heapq`, lida pela thread controladora
+        dentro do mesmo Lock do semáforo.
+- [x] PS desligado: ciclo fixo (`signals.PHASES`).
+- [x] Com o semáforo OFF o seletor fica **desabilitado** (sem escalonamento).
+- [x] Starvation: **aging** com prioridade efetiva = prioridade + espera × `SCHED_AGING_RATE`
+      (chave do heap invariante no tempo). Botões Preempção ON/OFF e Aging ON/OFF.
+- [x] Slider **🚑 Emergências** (0–80% dos spawns) para provocar starvation na demonstração.
 
 ### 2. Outros algoritmos de scheduling
 
-- [ ] Seletor de algoritmo na tela (substitui ou complementa o botão de PS):
-  - [ ] **FCFS** (First Come, First Served) — fila por ordem de chegada no cruzamento.
-  - [ ] **Round Robin** — alterna as direções (H/V) do cruzamento com um quantum
-        de tempo (semáforo temporizado clássico).
-  - [ ] **SJF** (Shortest Job First) — passa primeiro quem atravessa mais rápido
-        (menor tempo de travessia = `2 * INTERSECTION_RADIUS / speed`).
-  - [ ] **Priority** (com e sem preempção / aging).
-- [ ] Métricas por algoritmo (mesma estrutura de baldes do `SchedMetrics`, trocando a
-      chave `on`/`off` pelo nome do algoritmo).
+- [x] **FCFS**: abre a fase de quem chegou primeiro (mesmo semáforo de 6 fases).
+- [x] **Priority** com e sem preempção, com e sem aging.
+- [x] Round Robin e SJF foram implementados e depois **removidos** (fora do escopo da
+      apresentação).
+- [x] Métricas por algoritmo: baldes do `SchedMetrics` com chave `off` ou nome do algoritmo.
+
+### 2b. Modo comparação
+
+- [x] Aba **Comparação** na tela `/scheduling`: de 2 a 4 modos (OFF, Ciclo fixo,
+      Prioridade, FCFS) rodando ao mesmo tempo, com a mesma seed (mesmo fluxo de
+      veículos) — `backend/app/simulation_compare.py`.
+- [x] Barras de destaque por métrica, um mapa por modo, tabela comparativa.
+- [x] Aba **Individual** mantida (uma simulação, semáforo/escalonador ao vivo).
 
 ### 3. Métricas de prioridade
 
-- [ ] Tempo médio de viagem **emergência vs comum** com PS ligado vs desligado
-      (a coleta por categoria já existe: `average_trip_time_emergency` /
-      `average_trip_time_normal`).
-- [ ] Tempo médio de espera no cruzamento por categoria (hoje é agregado).
-- [ ] Tempo máximo de espera (para evidenciar starvation).
-- [ ] Throughput: veículos finalizados por minuto.
+- [x] Viagem média emergência × comum por modo.
+- [x] Espera média no cruzamento por categoria.
+- [x] Espera máxima por categoria (evidencia starvation).
+- [x] Throughput (veículos finalizados por minuto) e número de preempções.
 
 ### 4. Documentação
 
-- [ ] Atualizar `docs/METRICAS.md` com as métricas de scheduling quando forem implementadas.
+- [x] `docs/METRICAS.md` atualizado com as métricas e os algoritmos.
+
+## Ideias para depois
+
+- [ ] Exportar o comparativo por modo (CSV) para usar nos slides.
+- [ ] Benchmark automático: rodar a comparação por um tempo fixo e salvar o resultado.

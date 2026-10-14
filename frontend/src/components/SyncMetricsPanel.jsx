@@ -1,96 +1,36 @@
-import React from "react";
-import { MetricBar } from "./UtilizationPanel.jsx";
+/**
+ * Helpers do modo individual: transformam os baldes de métricas
+ * (`metrics.phases`, um por modo usado) em linhas para os destaques e
+ * colunas para a tabela comparativa.
+ */
 
-const BAR_METRICS = [
-  { key: "collisions", label: "Colisões", hint: "total" },
-  { key: "intersection_conflicts", label: "Race", hint: "janela" },
-  { key: "average_wait_time", label: "Espera", hint: "média (s)" },
-  { key: "average_trip_time", label: "Viagem", hint: "média (s)" },
-];
-
-const ROWS = [
-  { key: "collisions", label: "Colisões" },
-  { key: "intersection_conflicts", label: "Race conditions" },
-  { key: "average_wait_time", label: "Espera média (s)", decimals: 2, average: true },
-  { key: "average_trip_time", label: "Viagem média (s)", decimals: 2, average: true },
-];
-
-const PHASES = [
-  { key: "off", label: "Semáforo OFF" },
-  { key: "on", label: "Semáforo ON" },
-];
-
-function format(value, decimals) {
-  if (typeof value !== "number") return "—";
-  return decimals ? value.toFixed(decimals) : value;
+/** Chave do balde ("priority-np+aging") -> chave de cor do modo ("priority"). */
+export function laneKeyOf(bucketKey) {
+  return bucketKey?.startsWith("priority") ? "priority" : bucketKey;
 }
 
-function winnerClass(row, offVal, onVal) {
-  if (offVal === onVal) return { off: "", on: "" };
-  // média 0 = fase ainda sem amostras, não significa "melhor"
-  if (row.average && (offVal === 0 || onVal === 0)) return { off: "", on: "" };
-  return offVal < onVal
-    ? { off: "cmp-better", on: "cmp-worse" }
-    : { off: "cmp-worse", on: "cmp-better" };
-}
+const SHORT = { off: "Semáforo OFF", fixed: "Ciclo fixo", priority: "Prioridade", fcfs: "FCFS" };
 
-export default function SyncMetricsPanel({ metrics }) {
+/** Todas as colunas (um balde = uma coluna), na ordem em que os modos foram usados. */
+export function phaseColumns(metrics) {
   const phases = metrics?.phases;
-  if (!phases) return null;
+  if (!phases) return [];
+  return Object.keys(phases).map((k) => ({
+    key: k,
+    label: phases[k].label,
+    short: SHORT[laneKeyOf(k)] ?? phases[k].label,
+    stats: phases[k],
+    laneKey: laneKeyOf(k),
+    active: k === metrics.phase,
+  }));
+}
 
-  const { off, on } = phases;
-  const scales = Object.fromEntries(
-    BAR_METRICS.map((m) => [m.key, Math.max(off[m.key] ?? 0, on[m.key] ?? 0, 1)])
-  );
-
-  return (
-    <>
-      <div className="compare-bars utilization-panel">
-        {PHASES.map((phase) => (
-          <div key={phase.key} className={`compare-panel compare-panel-${phase.key}`}>
-            <span className={`compare-panel-title ${phase.key}-title`}>{phase.label}</span>
-            <div className="util-metrics-row">
-              {BAR_METRICS.map((m) => (
-                <MetricBar
-                  key={m.key}
-                  label={m.label}
-                  hint={m.hint}
-                  value={phases[phase.key][m.key] ?? 0}
-                  mode={phase.key}
-                  max={scales[m.key]}
-                />
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="comparison-panel">
-        <div className="comparison-title">Comparativo OFF vs ON</div>
-        <table className="comparison-table">
-          <thead>
-            <tr>
-              <th>Métrica</th>
-              <th className="cmp-col-off">OFF</th>
-              <th className="cmp-col-on">ON</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ROWS.map((row) => {
-              const offVal = off[row.key];
-              const onVal = on[row.key];
-              const cls = winnerClass(row, offVal, onVal);
-              return (
-                <tr key={row.key}>
-                  <td className="cmp-label">{row.label}</td>
-                  <td className={`cmp-val ${cls.off}`}>{format(offVal, row.decimals)}</td>
-                  <td className={`cmp-val ${cls.on}`}>{format(onVal, row.decimals)}</td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
-      </div>
-    </>
-  );
+/** Destaques: Semáforo OFF x modo com semáforo (o atual, ou o último usado). */
+export function highlightRows(metrics) {
+  const cols = phaseColumns(metrics);
+  if (!cols.length) return [];
+  const off = cols.find((c) => c.key === "off");
+  const current = cols.find((c) => c.active);
+  const on = current && current.key !== "off" ? current : [...cols].reverse().find((c) => c.key !== "off");
+  return [off, on].filter(Boolean);
 }

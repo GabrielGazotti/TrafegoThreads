@@ -13,6 +13,8 @@ vira à esquerda nunca cruzar com quem vem de frente):
   5. L esquerda   (+ N/S direita)
   6. O esquerda   (+ N/S direita)
 Entre fases: amarelo (ninguém novo entra) e vermelho geral (limpa o cruzamento).
+
+Priority Scheduling pode cortar o verde (`TrafficSignal.cut`) — ver `scheduler.py`.
 """
 
 from __future__ import annotations
@@ -84,17 +86,44 @@ PHASES = [
     ("O esquerda", {"W": LEFT, "N": RIGHT, "S": RIGHT}, config.SIGNAL_GREEN_LEFT),
 ]
 
+def phase_for(phases: list, movement: tuple[str, str]) -> int | None:
+    """Primeira fase que libera o movimento (lado de chegada, manobra)."""
+    approach, maneuver = movement
+    for idx, (_, allowed, _) in enumerate(phases):
+        if maneuver in allowed.get(approach, ()):
+            return idx
+    return None
+
 
 class TrafficSignal:
-    """Estado do semáforo de um cruzamento. Avançado pela thread controladora."""
+    """
+    Estado do semáforo de um cruzamento. Avançado pela thread controladora.
 
-    def __init__(self, start_phase: int = 0, now: float | None = None) -> None:
+    `cut(now, target)` faz a preempção: encerra o verde atual agora (passando
+    normalmente por amarelo e vermelho geral) e agenda `target` como a próxima fase.
+    """
+
+    def __init__(self, start_phase: int = 0, now: float | None = None,
+                 phases: list | None = None) -> None:
         now = time.time() if now is None else now
-        self.phase_idx = start_phase % len(PHASES)
+        self.phases = phases or PHASES
+        self.phase_idx = start_phase % len(self.phases)
         self.stage = "green"
-        self.stage_end = now + PHASES[self.phase_idx][2]
+        self.green_start = now
+        self.stage_end = now + self.phases[self.phase_idx][2]
+        self.pending_phase: int | None = None
+        # True da preempção até o fim do verde que ela abriu
+        self.preempted = False
 
-    def step(self, now: float) -> None:
+    @property
+    def phase_name(self) -> str:
+        return self.phases[self.phase_idx][0]
+
+    def step(self, now: float, choose_next=None) -> None:
+        """
+        `choose_next()` (opcional) escolhe a próxima fase no fim do vermelho geral;
+        devolvendo None, segue a ordem fixa do ciclo.
+        """
         while now >= self.stage_end:
             if self.stage == "green":
                 self.stage = "yellow"
@@ -103,17 +132,37 @@ class TrafficSignal:
                 self.stage = "all_red"
                 self.stage_end += config.SIGNAL_ALL_RED
             else:
-                self.phase_idx = (self.phase_idx + 1) % len(PHASES)
+                if self.pending_phase is not None:
+                    nxt = self.pending_phase
+                    self.pending_phase = None
+                else:
+                    self.preempted = False
+                    nxt = choose_next() if choose_next else None
+                    if nxt is None:
+                        nxt = (self.phase_idx + 1) % len(self.phases)
+                self.phase_idx = nxt
                 self.stage = "green"
-                self.stage_end += PHASES[self.phase_idx][2]
+                self.green_start = self.stage_end
+                self.stage_end += self.phases[self.phase_idx][2]
+
+    def cut(self, now: float, target: int) -> None:
+        """Preempção: encerra o verde agora e abre `target` depois do vermelho geral."""
+        if self.stage == "green":
+            self.stage_end = now
+        self.pending_phase = target
+        self.preempted = True
+
+    def shift_time(self, dt: float) -> None:
+        self.stage_end += dt
+        self.green_start += dt
 
     def allows(self, approach: str, maneuver: str) -> bool:
-        _, allowed, _ = PHASES[self.phase_idx]
+        _, allowed, _ = self.phases[self.phase_idx]
         return self.stage == "green" and maneuver in allowed.get(approach, ())
 
     def state(self) -> dict:
         """Cor de cada luz: {lado: {"left": cor, "straight": cor, "right": cor}}."""
-        _, allowed, _ = PHASES[self.phase_idx]
+        _, allowed, _ = self.phases[self.phase_idx]
         lit = {"green": "green", "yellow": "yellow"}.get(self.stage, "red")
         return {
             approach: {

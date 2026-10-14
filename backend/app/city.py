@@ -17,7 +17,10 @@ class Intersection:
     occupied_by: str | None = None
     occupants: list = field(default_factory=list)
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
-    signal: object = field(default=None, repr=False, compare=False)
+    # escalonador do cruzamento (tela /scheduling) — ver scheduler.py
+    controller: object = field(default=None, repr=False, compare=False)
+    # movimento (lado de chegada, manobra) de cada veículo dentro do cruzamento
+    occupant_moves: dict = field(default_factory=dict, repr=False, compare=False)
 
     def try_enter(self, vehicle_id: str) -> bool:
        
@@ -33,34 +36,54 @@ class Intersection:
         )
         return raced
 
-    def try_enter_signal(self, vehicle_id: str, approach: str, maneuver: str) -> bool:
+    def try_enter_sched(self, vehicle_id: str, movement: tuple[str, str], priority: int,
+                        label: str = "") -> bool:
         """
-        Entrada controlada pelo semáforo: ler o sinal + entrar dentro do
+        Entrada controlada pelo escalonador do cruzamento (semáforo ligado):
+        registrar o pedido, consultar o controlador e entrar acontecem dentro do
         mesmo Lock que a thread controladora usa para trocar a fase.
 
-        Não bloqueia: se o Lock estiver ocupado ou o sinal do movimento
-        estiver fechado, retorna False e o veículo tenta no próximo tick.
-        Assim o semáforo pode ser desligado a qualquer momento sem deixar
-        thread presa no acquire().
+        Não bloqueia: se o Lock estiver ocupado ou o controlador negar a vez,
+        retorna False e o veículo tenta no próximo tick. Assim o semáforo pode
+        ser desligado a qualquer momento sem deixar thread presa no acquire().
         """
         if not self._lock.acquire(blocking=False):
             return False
         try:
-            if self.signal is None or not self.signal.allows(approach, maneuver):
+            ctrl = self.controller
+            if ctrl is None:
+                return False
+            now = time.time()
+            ctrl.request(vehicle_id, movement, priority, now, label)
+            if not ctrl.admit(vehicle_id, self.occupant_moves, now):
                 return False
             self.occupants.append(vehicle_id)
+            self.occupant_moves[vehicle_id] = movement
             self.occupied_by = vehicle_id
             return True
         finally:
             self._lock.release()
 
-    def step_signal(self, now: float) -> None:
-        if self.signal is None:
+    def step_controller(self, now: float) -> None:
+        if self.controller is None:
             return
         with self._lock:
-            self.signal.step(now)
+            self.controller.step(now)
+
+    def set_controller(self, controller) -> None:
+        with self._lock:
+            self.controller = controller
+
+    def controller_snapshot(self) -> tuple[dict | None, dict]:
+        with self._lock:
+            if self.controller is None:
+                return None, {}
+            now = time.time()
+            return (self.controller.state(self.occupant_moves, now),
+                    self.controller.info())
 
     def leave(self, vehicle_id: str):
+        self.occupant_moves.pop(vehicle_id, None)
         try:
             self.occupants.remove(vehicle_id)
         except ValueError:

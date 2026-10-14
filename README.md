@@ -28,14 +28,18 @@ traffic-sim/
 │       ├── simulation.py   # modo MULTI (spawner, monitor, reaper + N threads)
 │       ├── simulation_mono.py  # modo MONO (1 loop sequencial)
 │       ├── simulation_sched.py # tela /scheduling (multithread + semáforo ON/OFF)
-│       ├── vehicle_sched.py    # SchedVehicle (espera no semáforo, prioridade)
-│       ├── metrics_sched.py    # métricas por fase ON/OFF (com lock)
+│       ├── signals.py          # fases do semáforo, matriz de conflitos
+│       ├── scheduler.py        # escalonadores: ciclo fixo, prioridade, FCFS
+│       ├── simulation_compare.py # modo comparação (várias simulações, mesma seed)
+│       ├── vehicle_sched.py    # SchedVehicle (pede a vez ao escalonador, prioridade)
+│       ├── metrics_sched.py    # métricas por modo/algoritmo (com lock)
 │       └── main.py         # FastAPI + WebSockets
 ├── docs/                   # métricas e roadmap
 └── frontend/
     └── src/
         ├── hooks/useSimulationSocket.js
-        ├── components/CityMap, ModeFrame, ThreadStrip, UtilizationPanel, SyncMetricsPanel
+        ├── components/CityMap, ModeFrame, ThreadStrip, UtilizationPanel, SyncMetricsPanel,
+        │              SchedulerControls, CompareView, ModeComparisonTable
         ├── pages/ThreadsPage.jsx     # /threads — MULTI vs MONO
         ├── pages/SchedulingPage.jsx  # /scheduling — sincronismo
         └── App.jsx         # layout + navegação
@@ -87,6 +91,16 @@ a simulação dela é pausada automaticamente.
 Tela de sincronismo / scheduling:
 - `WS /ws/scheduling` — simulação multithread com semáforo ligável
 - `POST /api/scheduling/sync` — body `{"enabled": true|false}` liga/desliga o semáforo
+- `POST /api/scheduling/algorithm` — body `{"algorithm": "fixed"|"priority"|"fcfs",
+  "preemption": bool?, "aging": bool?}` troca o escalonador do cruzamento
+- `POST /api/scheduling/emergency-rate` — body `{"rate": 0.0–0.8}` fração de emergências nos spawns
+
+Modo comparação (várias simulações ao mesmo tempo, mesma seed):
+- `WS /ws/scheduling-compare` — snapshot de todas as simulações
+- `POST /api/scheduling/compare/control` — body `{"action": "start"|"pause"|"reset"}`
+- `POST /api/scheduling/compare/config` — body `{"lanes": ["off","fixed","priority","fcfs"]?,
+  "preemption": bool?, "aging": bool?, "emergency_rate": float?}`
+- `GET /api/scheduling/compare/snapshot` — snapshot pontual (debug)
 - `POST /api/scheduling/reset` — reinicia só a simulação de scheduling
 - `GET /api/scheduling/config` — tipos de veículo e prioridades
 - `GET /api/scheduling/snapshot` — snapshot pontual (debug)
@@ -94,8 +108,11 @@ Tela de sincronismo / scheduling:
 ### Rotas do frontend
 
 - `/threads` — tela MULTI vs MONO (sem sincronização)
-- `/scheduling` — tela com o botão **Semáforo ON/OFF**, veículos de emergência
-  (🚑 🚓 🚒) e métricas separadas por fase
+- `/scheduling` — duas abas:
+  - **Comparação**: de 2 a 4 modos (Semáforo OFF, Ciclo fixo, Prioridade, FCFS) rodando
+    lado a lado com o mesmo tráfego, barras de destaque e tabela comparativa
+  - **Individual**: botão **Semáforo ON/OFF**, seletor de **escalonador** (Ciclo fixo,
+    Prioridade com preempção/aging, FCFS) e métricas separadas por modo
 
 Documentação das métricas e próximas etapas em [`docs/`](docs/):
 [`METRICAS.md`](docs/METRICAS.md) e [`ROADMAP.md`](docs/ROADMAP.md).
